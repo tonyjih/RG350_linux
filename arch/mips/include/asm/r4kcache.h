@@ -15,6 +15,7 @@
 #include <asm/asm.h>
 #include <asm/cacheops.h>
 #include <asm/cpu-features.h>
+#include <asm/cpu-type.h>
 #include <asm/mipsmtregs.h>
 
 #ifdef CONFIG_JZRISC
@@ -218,8 +219,16 @@ static inline void flush_scache_line_indexed(unsigned long addr)
 static inline void flush_icache_line(unsigned long addr)
 {
 	__iflush_prologue
-	cache_op(Hit_Invalidate_I, addr);
-	INVALIDATE_BTB();
+	switch (boot_cpu_type()) {
+	case CPU_LOONGSON2:
+		cache_op(Hit_Invalidate_I_Loongson23, addr);
+		break;
+
+	default:
+		cache_op(Hit_Invalidate_I, addr);
+    INVALIDATE_BTB();
+		break;
+	}
 	__iflush_epilogue
 }
 
@@ -268,8 +277,16 @@ static inline void flush_scache_line(unsigned long addr)
  */
 static inline void protected_flush_icache_line(unsigned long addr)
 {
-	protected_cache_op(Hit_Invalidate_I, addr);
-	INVALIDATE_BTB();
+	switch (boot_cpu_type()) {
+	case CPU_LOONGSON2:
+		protected_cache_op(Hit_Invalidate_I_Loongson23, addr);
+		break;
+
+	default:
+		protected_cache_op(Hit_Invalidate_I, addr);
+    INVALIDATE_BTB();
+		break;
+	}
 }
 
 /*
@@ -595,8 +612,8 @@ static inline void blast_icache32_page_indexed(unsigned long page)
 
 
 /* build blast_xxx_range, protected_blast_xxx_range */
-#define __BUILD_BLAST_CACHE_RANGE(pfx, desc, hitop, prot) \
-static inline void prot##blast_##pfx##cache##_range(unsigned long start, \
+#define __BUILD_BLAST_CACHE_RANGE(pfx, desc, hitop, prot, extra)	\
+static inline void prot##extra##blast_##pfx##cache##_range(unsigned long start, \
 						    unsigned long end)	\
 {									\
 	unsigned long lsize = cpu_##desc##_line_size();			\
@@ -616,20 +633,26 @@ static inline void prot##blast_##pfx##cache##_range(unsigned long start, \
 }
 
 #ifndef CONFIG_JZRISC
-__BUILD_BLAST_CACHE_RANGE(d, dcache, Hit_Writeback_Inv_D, protected_)
+__BUILD_BLAST_CACHE_RANGE(d, dcache, Hit_Writeback_Inv_D, protected_, )
 #endif
 
-__BUILD_BLAST_CACHE_RANGE(s, scache, Hit_Writeback_Inv_SD, protected_)
+__BUILD_BLAST_CACHE_RANGE(s, scache, Hit_Writeback_Inv_SD, protected_, )
 
 #ifndef CONFIG_JZRISC
-__BUILD_BLAST_CACHE_RANGE(i, icache, Hit_Invalidate_I, protected_)
-__BUILD_BLAST_CACHE_RANGE(d, dcache, Hit_Writeback_Inv_D, )
+__BUILD_BLAST_CACHE_RANGE(i, icache, Hit_Invalidate_I, protected_, )
 #endif
 
-__BUILD_BLAST_CACHE_RANGE(s, scache, Hit_Writeback_Inv_SD, )
+__BUILD_BLAST_CACHE_RANGE(i, icache, Hit_Invalidate_I_Loongson23, \
+	protected_, loongson23_)
+
+#ifndef CONFIG_JZRISC
+__BUILD_BLAST_CACHE_RANGE(d, dcache, Hit_Writeback_Inv_D, , )
+#endif
+
+__BUILD_BLAST_CACHE_RANGE(s, scache, Hit_Writeback_Inv_SD, , )
 /* blast_inv_dcache_range */
-__BUILD_BLAST_CACHE_RANGE(inv_d, dcache, Hit_Invalidate_D, )
-__BUILD_BLAST_CACHE_RANGE(inv_s, scache, Hit_Invalidate_SD, )
+__BUILD_BLAST_CACHE_RANGE(inv_d, dcache, Hit_Invalidate_D, , )
+__BUILD_BLAST_CACHE_RANGE(inv_s, scache, Hit_Invalidate_SD, , )
 
 #ifdef CONFIG_JZRISC
 

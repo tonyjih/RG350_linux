@@ -14,19 +14,15 @@
 /*
  * Cache Operations available on all MIPS processors with R4000-style caches
  */
-#define Index_Invalidate_I	0x00
-#define Index_Writeback_Inv_D	0x01
-#define Index_Load_Tag_I	0x04
-#define Index_Load_Tag_D	0x05
-#define Index_Store_Tag_I	0x08
-#define Index_Store_Tag_D	0x09
-#if defined(CONFIG_CPU_LOONGSON2)
-#define Hit_Invalidate_I	0x00
-#else
-#define Hit_Invalidate_I	0x10
-#endif
-#define Hit_Invalidate_D	0x11
-#define Hit_Writeback_Inv_D	0x15
+#define Index_Invalidate_I		0x00
+#define Index_Writeback_Inv_D		0x01
+#define Index_Load_Tag_I		0x04
+#define Index_Load_Tag_D		0x05
+#define Index_Store_Tag_I		0x08
+#define Index_Store_Tag_D		0x09
+#define Hit_Invalidate_I		0x10
+#define Hit_Invalidate_D		0x11
+#define Hit_Writeback_Inv_D		0x15
 
 /*
  * R4000-specific cacheops
@@ -84,5 +80,10 @@
 #define Index_Store_Data_I	0x1c
 #define Index_Store_Data_D	0x1d
 #define Index_Store_Data_S	0x1f
+
+/*
+ * Loongson2-specific cacheops
+ */
+#define Hit_Invalidate_I_Loongson23	0x00
 
 #endif	/* __ASM_CACHEOPS_H */
