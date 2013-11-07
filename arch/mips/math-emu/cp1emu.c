@@ -887,6 +887,25 @@ emul:
 			SITOHREG(xcp->regs[MIPSInst_RT(ir)], MIPSInst_RD(ir));
 			break;
 
+		case mfhc_op:
+			if (!cpu_has_mips_r2)
+				goto sigill;
+
+			/* copregister rd -> gpr[rt] */
+			if (MIPSInst_RT(ir) != 0) {
+				SIFROMHREG(xcp->regs[MIPSInst_RT(ir)],
+					MIPSInst_RD(ir));
+			}
+			break;
+
+		case mthc_op:
+			if (!cpu_has_mips_r2)
+				goto sigill;
+
+			/* copregister rd <- gpr[rt] */
+			SITOHREG(xcp->regs[MIPSInst_RT(ir)], MIPSInst_RD(ir));
+			break;
+
 		case mfc_op:
 			/* copregister rd -> gpr[rt] */
 			if (MIPSInst_RT(ir) != 0) {
