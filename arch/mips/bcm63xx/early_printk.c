@@ -6,7 +6,6 @@
  * Copyright (C) 2008 Maxime Bizon <mbizon@freebox.fr>
  */
 
-#include <linux/init.h>
 #include <bcm63xx_io.h>
 #include <bcm63xx_regs.h>
 
