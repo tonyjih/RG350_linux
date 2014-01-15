@@ -2015,6 +2015,9 @@ config MIPS_CMP
 	  This is a placeholder option for the GCMP work. It will need to
 	  be handled differently...
 
+config MIPS_CM
+	bool
+
 config SB1_PASS_1_WORKAROUNDS
 	bool
 	depends on CPU_SB1_PASS_1
