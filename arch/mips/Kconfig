@@ -1912,6 +1912,7 @@ config MIPS_MT_SMTC
 	depends on CPU_MIPS32_R2
 	#depends on CPU_MIPS64_R2		# once there is hardware ...
 	depends on SYS_SUPPORTS_MULTITHREADING
+	depends on !MIPS_CPS
 	select CPU_MIPSR2_IRQ_VI
 	select CPU_MIPSR2_IRQ_EI
 	select MIPS_MT
@@ -2006,16 +2007,48 @@ config MIPS_VPE_APSP_API
 	help
 
 config MIPS_CMP
-	bool "MIPS CMP framework support"
+	bool "MIPS CMP framework support (DEPRECATED)"
 	depends on SYS_SUPPORTS_MIPS_CMP
+	select MIPS_GIC_IPI
+	select SMP
 	select SYNC_R4K
 	select SYS_SUPPORTS_SMP
-	select SYS_SUPPORTS_SCHED_SMT if SMP
 	select WEAK_ORDERING
 	default n
 	help
-	  This is a placeholder option for the GCMP work. It will need to
-	  be handled differently...
+	  Select this if you are using a bootloader which implements the "CMP
+	  framework" protocol (ie. YAMON) and want your kernel to make use of
+	  its ability to start secondary CPUs.
+
+	  Unless you have a specific need, you should use CONFIG_MIPS_CPS
+	  instead of this.
+
+config MIPS_CPS
+	bool "MIPS Coherent Processing System support"
+	depends on SYS_SUPPORTS_MIPS_CPS
+	select MIPS_CM
+	select MIPS_CPC
+	select MIPS_CPS_PM if HOTPLUG_CPU
+	select MIPS_GIC_IPI
+	select SMP
+	select SYNC_R4K if (CEVT_R4K || CSRC_R4K)
+	select SYS_SUPPORTS_HOTPLUG_CPU
+	select SYS_SUPPORTS_SMP
+	select WEAK_ORDERING
+	help
+	  Select this if you wish to run an SMP kernel across multiple cores
+	  within a MIPS Coherent Processing System. When this option is
+	  enabled the kernel will probe for other cores and boot them with
+	  no external assistance. It is safe to enable this when hardware
+	  support is unavailable.
+
+config MIPS_CPS_PM
+	depends on MIPS_CPS
+	select MIPS_CPC
+	bool
+
+config MIPS_GIC_IPI
+	bool
 
 config MIPS_CM
 	bool
@@ -2216,6 +2249,9 @@ config SMP_UP
 	bool
 
 config SYS_SUPPORTS_MIPS_CMP
+	bool
+
+config SYS_SUPPORTS_MIPS_CPS
 	bool
 
 config SYS_SUPPORTS_SMP
