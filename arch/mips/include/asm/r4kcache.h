@@ -221,7 +221,7 @@ static inline void flush_icache_line(unsigned long addr)
 	__iflush_prologue
 	switch (boot_cpu_type()) {
 	case CPU_LOONGSON2:
-		cache_op(Hit_Invalidate_I_Loongson23, addr);
+		cache_op(Hit_Invalidate_I_Loongson2, addr);
 		break;
 
 	default:
@@ -279,7 +279,7 @@ static inline void protected_flush_icache_line(unsigned long addr)
 {
 	switch (boot_cpu_type()) {
 	case CPU_LOONGSON2:
-		protected_cache_op(Hit_Invalidate_I_Loongson23, addr);
+		protected_cache_op(Hit_Invalidate_I_Loongson2, addr);
 		break;
 
 	default:
@@ -642,8 +642,8 @@ __BUILD_BLAST_CACHE_RANGE(s, scache, Hit_Writeback_Inv_SD, protected_, )
 __BUILD_BLAST_CACHE_RANGE(i, icache, Hit_Invalidate_I, protected_, )
 #endif
 
-__BUILD_BLAST_CACHE_RANGE(i, icache, Hit_Invalidate_I_Loongson23, \
-	protected_, loongson23_)
+__BUILD_BLAST_CACHE_RANGE(i, icache, Hit_Invalidate_I_Loongson2, \
+	protected_, loongson2_)
 
 #ifndef CONFIG_JZRISC
 __BUILD_BLAST_CACHE_RANGE(d, dcache, Hit_Writeback_Inv_D, , )
