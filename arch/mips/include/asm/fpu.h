@@ -87,6 +87,8 @@ fr_common:
 	default:
 		BUG();
 	}
+
+	return SIGFPE;
 }
 
 #define __disable_fpu()							\
