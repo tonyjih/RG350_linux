@@ -50,7 +50,7 @@ EXPORT_SYMBOL_GPL(local_flush_data_cache_page);
 EXPORT_SYMBOL(flush_data_cache_page);
 EXPORT_SYMBOL(flush_icache_all);
 
-#ifdef CONFIG_DMA_NONCOHERENT
+#if defined(CONFIG_DMA_NONCOHERENT) || defined(CONFIG_DMA_MAYBE_COHERENT)
 
 /* DMA cache operations. */
 void (*_dma_cache_wback_inv)(unsigned long start, unsigned long size);
@@ -61,7 +61,7 @@ EXPORT_SYMBOL(_dma_cache_wback_inv);
 EXPORT_SYMBOL(_dma_cache_wback);
 EXPORT_SYMBOL(_dma_cache_inv);
 
-#endif /* CONFIG_DMA_NONCOHERENT */
+#endif /* CONFIG_DMA_NONCOHERENT || CONFIG_DMA_MAYBE_COHERENT */
 
 /*
  * We could optimize the case where the cache argument is not BCACHE but
