@@ -145,14 +145,14 @@ symbol		=	value
 
 #define PREF(hint,addr)					\
 		.set	push;				\
-		.set	mips4;				\
+		.set	arch=r5000;			\
 		pref	hint, addr;			\
 		.set	mips0;				\
 		.set	pop
 
 #define PREFX(hint,addr)				\
 		.set	push;				\
-		.set	mips4;				\
+		.set	arch=r5000;			\
 		prefx	hint, addr;			\
 		.set	mips0;				\
 		.set	pop

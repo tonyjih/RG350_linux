@@ -88,7 +88,7 @@ do {						\
 	__asm__ __volatile__(						\
 	"	.set	push					\n"	\
 	"	.set	noreorder				\n"	\
-	"	.set	mips3\n\t				\n"	\
+	"	.set	arch=r4000				\n"	\
 	"	cache	%0, %1					\n"	\
 	"	.set	mips0\n\t				\n"	\
 	"	.set	pop					\n"	\
@@ -262,7 +262,7 @@ static inline void flush_scache_line(unsigned long addr)
 	__asm__ __volatile__(					\
 	"	.set	push			\n"		\
 	"	.set	noreorder		\n"		\
-	"	.set	mips3			\n"		\
+	"	.set	arch=r4000		\n"		\
 	"1:	cache	%0, (%1)		\n"		\
 	"	.set	mips0			\n"		\
 	"2:	.set	pop			\n"		\
