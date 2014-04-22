@@ -42,7 +42,7 @@ int ieee754dp_isnan(union ieee754dp x)
 int ieee754dp_issnan(union ieee754dp x)
 {
 	assert(ieee754dp_isnan(x));
-	return ((DPMANT(x) & DP_MBIT(DP_MBITS-1)) == DP_MBIT(DP_MBITS-1));
+	return ((DPMANT(x) & DP_MBIT(DP_FBITS-1)) == DP_MBIT(DP_FBITS-1));
 }
 
 
@@ -72,7 +72,7 @@ union ieee754dp __cold ieee754dp_nanxcpt(union ieee754dp r, const char *op, ...)
 
 	if (!ieee754_setandtestcx(IEEE754_INVALID_OPERATION)) {
 		/* not enabled convert to a quiet NaN */
-		DPMANT(r) &= (~DP_MBIT(DP_MBITS-1));
+		DPMANT(r) &= (~DP_MBIT(DP_FBITS-1));
 		if (ieee754dp_isnan(r))
 			return r;
 		else
@@ -135,7 +135,7 @@ union ieee754dp ieee754dp_format(int sn, int xe, u64 xm)
 {
 	assert(xm);		/* we don't gen exact zeros (probably should) */
 
-	assert((xm >> (DP_MBITS + 1 + 3)) == 0);	/* no execess */
+	assert((xm >> (DP_FBITS + 1 + 3)) == 0);	/* no execess */
 	assert(xm & (DP_HIDDEN_BIT << 3));
 
 	if (xe < DP_EMIN) {
@@ -164,7 +164,7 @@ union ieee754dp ieee754dp_format(int sn, int xe, u64 xm)
 		}
 
 		if (xe == DP_EMIN - 1
-				&& get_rounding(sn, xm) >> (DP_MBITS + 1 + 3))
+				&& get_rounding(sn, xm) >> (DP_FBITS + 1 + 3))
 		{
 			/* Not tiny after rounding */
 			ieee754_setcx(IEEE754_INEXACT);
@@ -194,7 +194,7 @@ union ieee754dp ieee754dp_format(int sn, int xe, u64 xm)
 		xm = get_rounding(sn, xm);
 		/* adjust exponent for rounding add overflowing
 		 */
-		if (xm >> (DP_MBITS + 3 + 1)) {
+		if (xm >> (DP_FBITS + 3 + 1)) {
 			/* add causes mantissa overflow */
 			xm >>= 1;
 			xe++;
@@ -203,7 +203,7 @@ union ieee754dp ieee754dp_format(int sn, int xe, u64 xm)
 	/* strip grs bits */
 	xm >>= 3;
 
-	assert((xm >> (DP_MBITS + 1)) == 0);	/* no execess */
+	assert((xm >> (DP_FBITS + 1)) == 0);	/* no execess */
 	assert(xe >= DP_EMIN);
 
 	if (xe > DP_EMAX) {
@@ -236,7 +236,7 @@ union ieee754dp ieee754dp_format(int sn, int xe, u64 xm)
 			ieee754_setcx(IEEE754_UNDERFLOW);
 		return builddp(sn, DP_EMIN - 1 + DP_EBIAS, xm);
 	} else {
-		assert((xm >> (DP_MBITS + 1)) == 0);	/* no execess */
+		assert((xm >> (DP_FBITS + 1)) == 0);	/* no execess */
 		assert(xm & DP_HIDDEN_BIT);
 
 		return builddp(sn, xe + DP_EBIAS, xm & ~DP_HIDDEN_BIT);

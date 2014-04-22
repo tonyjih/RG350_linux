@@ -53,8 +53,8 @@ union ieee754dp ieee754dp_fint(int x)
 
 #if 1
 	/* normalize - result can never be inexact or overflow */
-	xe = DP_MBITS;
-	while ((xm >> DP_MBITS) == 0) {
+	xe = DP_FBITS;
+	while ((xm >> DP_FBITS) == 0) {
 		xm <<= 1;
 		xe--;
 	}
