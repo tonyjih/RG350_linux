@@ -372,9 +372,6 @@ void __noreturn die(const char *str, struct pt_regs *regs)
 {
 	static int die_counter;
 	int sig = SIGSEGV;
-#ifdef CONFIG_MIPS_MT_SMTC
-	unsigned long dvpret;
-#endif /* CONFIG_MIPS_MT_SMTC */
 
 	oops_enter();
 
@@ -384,13 +381,7 @@ void __noreturn die(const char *str, struct pt_regs *regs)
 
 	console_verbose();
 	raw_spin_lock_irq(&die_lock);
-#ifdef CONFIG_MIPS_MT_SMTC
-	dvpret = dvpe();
-#endif /* CONFIG_MIPS_MT_SMTC */
 	bust_spinlocks(1);
-#ifdef CONFIG_MIPS_MT_SMTC
-	mips_mt_regdump(dvpret);
-#endif /* CONFIG_MIPS_MT_SMTC */
 
 	printk("%s[#%d]:\n", str, ++die_counter);
 	show_registers(regs);
@@ -1852,19 +1843,6 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 		extern char rollback_except_vec_vi;
 		char *vec_start = using_rollback_handler() ?
 			&rollback_except_vec_vi : &except_vec_vi;
-#ifdef CONFIG_MIPS_MT_SMTC
-		/*
-		 * We need to provide the SMTC vectored interrupt handler
-		 * not only with the address of the handler, but with the
-		 * Status.IM bit to be masked before going there.
-		 */
-		extern char except_vec_vi_mori;
-#if defined(CONFIG_CPU_MICROMIPS) || defined(CONFIG_CPU_BIG_ENDIAN)
-		const int mori_offset = &except_vec_vi_mori - vec_start + 2;
-#else
-		const int mori_offset = &except_vec_vi_mori - vec_start;
-#endif
-#endif /* CONFIG_MIPS_MT_SMTC */
 #if defined(CONFIG_CPU_MICROMIPS) || defined(CONFIG_CPU_BIG_ENDIAN)
 		const int lui_offset = &except_vec_vi_lui - vec_start + 2;
 		const int ori_offset = &except_vec_vi_ori - vec_start + 2;
@@ -1888,12 +1866,6 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 #else
 				handler_len);
 #endif
-#ifdef CONFIG_MIPS_MT_SMTC
-		BUG_ON(n > 7);	/* Vector index %d exceeds SMTC maximum. */
-
-		h = (u16 *)(b + mori_offset);
-		*h = (0x100 << n);
-#endif /* CONFIG_MIPS_MT_SMTC */
 		h = (u16 *)(b + lui_offset);
 		*h = (handler >> 16) & 0xffff;
 		h = (u16 *)(b + ori_offset);
@@ -2059,10 +2031,6 @@ void per_cpu_trap_init(bool is_boot_cpu)
 		cp0_perfcount_irq = -1;
 	}
 
-#ifdef CONFIG_MIPS_MT_SMTC
-	}
-#endif /* CONFIG_MIPS_MT_SMTC */
-
 	if (!cpu_data[cpu].asid_cache)
 		cpu_data[cpu].asid_cache = ASID_FIRST_VERSION;
 
@@ -2071,23 +2039,10 @@ void per_cpu_trap_init(bool is_boot_cpu)
 	BUG_ON(current->mm);
 	enter_lazy_tlb(&init_mm, current);
 
-#ifdef CONFIG_MIPS_MT_SMTC
-	if (bootTC) {
-#endif /* CONFIG_MIPS_MT_SMTC */
 		/* Boot CPU's cache setup in setup_arch(). */
 		if (!is_boot_cpu)
 			cpu_cache_init();
 		tlb_init();
-#ifdef CONFIG_MIPS_MT_SMTC
-	} else if (!secondaryTC) {
-		/*
-		 * First TC in non-boot VPE must do subset of tlb_init()
-		 * for MMU countrol registers.
-		 */
-		write_c0_pagemask(PM_DEFAULT_MASK);
-		write_c0_wired(0);
-	}
-#endif /* CONFIG_MIPS_MT_SMTC */
 	TLBMISS_HANDLER_SETUP();
 }
 

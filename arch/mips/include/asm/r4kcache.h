@@ -96,11 +96,10 @@ do {						\
 	: "i" (op), "R" (*(unsigned char *)(addr)))
 
 #ifdef CONFIG_MIPS_MT
-/*
- * Temporary hacks for SMTC debug. Optionally force single-threaded
- * execution during I-cache flushes.
- */
 
+/*
+ * Optionally force single-threaded execution during I-cache flushes.
+ */
 #define PROTECT_CACHE_FLUSHES 1
 
 #ifdef PROTECT_CACHE_FLUSHES

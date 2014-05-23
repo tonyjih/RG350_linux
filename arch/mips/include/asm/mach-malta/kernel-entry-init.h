@@ -10,22 +10,29 @@
 #define __ASM_MACH_MIPS_KERNEL_ENTRY_INIT_H
 
 	.macro	kernel_entry_setup
-#ifdef CONFIG_MIPS_MT_SMTC
-	mfc0	t0, CP0_CONFIG
-	bgez	t0, 9f
+
+#ifdef CONFIG_EVA
+	sync
+	ehb
+
+	mfc0    t1, CP0_CONFIG
+	bgez    t1, 9f
 	mfc0	t0, CP0_CONFIG, 1
 	bgez	t0, 9f
 	mfc0	t0, CP0_CONFIG, 2
 	bgez	t0, 9f
 	mfc0	t0, CP0_CONFIG, 3
-	and	t0, 1<<2
-	bnez	t0, 0f
+	sll     t0, t0, 6   /* SC bit */
+	bgez    t0, 9f
+
+	eva_entry
+	b       0f
 9:
 	/* Assume we came from YAMON... */
 	PTR_LA	v0, 0x9fc00534	/* YAMON print */
 	lw	v0, (v0)
 	move	a0, zero
-	PTR_LA	a1, nonmt_processor
+	PTR_LA  a1, nonsc_processor
 	jal	v0
 
 	PTR_LA	v0, 0x9fc00520	/* YAMON exit */
@@ -34,11 +41,12 @@
 	jal	v0
 
 1:	b	1b
-
+	nop
 	__INITDATA
-nonmt_processor:
-	.asciz	"SMTC kernel requires the MT ASE to run\n"
+nonsc_processor:
+	.asciz  "EVA kernel requires a MIPS core with Segment Control implemented\n"
 	__FINIT
+#endif /* CONFIG_EVA */
 0:
 #endif
 	.endm

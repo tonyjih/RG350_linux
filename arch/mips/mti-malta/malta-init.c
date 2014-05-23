@@ -102,7 +102,10 @@ static void __init mips_ejtag_setup(void)
 	flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
 }
 
-extern struct plat_smp_ops msmtc_smp_ops;
+phys_t mips_cpc_default_phys_base(void)
+{
+	return CPC_BASE_ADDR;
+}
 
 void __init prom_init(void)
 {
@@ -274,8 +277,4 @@ mips_pci_controller:
 
 	if (!register_vsmp_smp_ops())
 		return;
-
-#ifdef CONFIG_MIPS_MT_SMTC
-	register_smp_ops(&msmtc_smp_ops);
-#endif
 }
