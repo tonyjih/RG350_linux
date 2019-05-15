@@ -54,12 +54,12 @@ static irqreturn_t jz_joystick_irq_handler(int irq, void *devid)
 	int x, y;
 
 	val = readl(joystick->base + JZ_REG_ADC_TS_DATA);
-	x = val & 0xFFF;
-	y = (val >> 16) & 0xFFF;
+	x = (val >> 16) & 0xFFF;
+	y = val & 0xFFF;
 	//printk("joystick: x=%d y=%d\n", x, y);
 
 	input_report_abs(joystick->input_dev, ABS_X, JOYSTICK_MAX_X - x);
-	input_report_abs(joystick->input_dev, ABS_Y, y);
+	input_report_abs(joystick->input_dev, ABS_Y, JOYSTICK_MAX_Y - y);
 	input_sync(joystick->input_dev);
 
 	return IRQ_HANDLED;

@@ -179,7 +179,7 @@ static struct gpio_keys_button gcw0_buttons[] = {
 		.debounce_interval	= 10,
 	},
 	/* Left shoulder button */ {
-		.gpio			= JZ_GPIO_PORTB(20),
+		.gpio			= JZ_GPIO_PORTB(10),
 		.active_low		= 1,
 		.code			= KEY_TAB,
 		.debounce_interval	= 10,
@@ -212,12 +212,60 @@ static struct gpio_keys_button gcw0_buttons[] = {
 		.debounce_interval	= 10,
 		.wakeup			= 1,
 	},
-	/* POWER hold */ {
-		.gpio			= JZ_GPIO_PORTF(11),
+	
+	// /* POWER hold */ {
+		// .gpio			= JZ_GPIO_PORTF(11),
+		// .active_low		= 1,
+		// .code			= KEY_PAUSE,
+		// .debounce_interval	= 10,
+	// },
+	
+	/* RG350 */
+	/* L2 */ {
+		.gpio			= JZ_GPIO_PORTB(20),
 		.active_low		= 1,
-		.code			= KEY_PAUSE,
+		.code			= KEY_PAGEUP,
 		.debounce_interval	= 10,
 	},
+	
+	/* R2 */ {
+		.gpio			= JZ_GPIO_PORTB(11),
+		.active_low		= 1,
+		.code			= KEY_PAGEDOWN,
+		.debounce_interval	= 10,
+	},
+
+	/* L3 */ {
+		.gpio			= JZ_GPIO_PORTB(14),
+		.active_low		= 1,
+		.code			= KEY_KPSLASH,
+		.debounce_interval	= 10,
+	},
+	
+	/* R3 */ {
+		.gpio			= JZ_GPIO_PORTB(15),
+		.active_low		= 1,
+		.code			= KEY_KPDOT,
+		.debounce_interval	= 10,
+	},
+
+	
+	/* VOL_UP */ {
+		.gpio			= JZ_GPIO_PORTB(12),
+		.active_low		= 1,
+		.code			= KEY_KPPLUS,
+		.debounce_interval	= 10,
+	},
+
+	
+	/* VOL_DOWN */ {
+		.gpio			= JZ_GPIO_PORTB(13),
+		.active_low		= 1,
+		.code			= KEY_KPMINUS,
+		.debounce_interval	= 10,
+	},
+
+	
 };
 
 static struct gpio_keys_platform_data gcw0_gpio_keys_pdata = {
