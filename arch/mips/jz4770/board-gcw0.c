@@ -253,7 +253,7 @@ static struct gpio_keys_button gcw0_buttons[] = {
 	/* VOL_UP */ {
 		.gpio			= JZ_GPIO_PORTB(12),
 		.active_low		= 1,
-		.code			= KEY_KPPLUS,
+		.code			= KEY_VOLUMEUP,
 		.debounce_interval	= 10,
 	},
 
@@ -261,7 +261,7 @@ static struct gpio_keys_button gcw0_buttons[] = {
 	/* VOL_DOWN */ {
 		.gpio			= JZ_GPIO_PORTB(13),
 		.active_low		= 1,
-		.code			= KEY_KPMINUS,
+		.code			= KEY_VOLUMEDOWN,
 		.debounce_interval	= 10,
 	},
 
