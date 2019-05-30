@@ -95,7 +95,7 @@ static void gcw0_panel_exit(void *panel)
 
 static void gcw0_panel_enable(void *panel)
 {
-	act8600_output_enable(6, true);
+	//act8600_output_enable(6, true);
 
 	nt39016_panel_ops.enable(panel);
 }
@@ -104,7 +104,7 @@ static void gcw0_panel_disable(void *panel)
 {
 	nt39016_panel_ops.disable(panel);
 
-	act8600_output_enable(6, false);
+	//act8600_output_enable(6, false);
 }
 
 static struct nt39016_platform_data gcw0_panel_pdata = {
