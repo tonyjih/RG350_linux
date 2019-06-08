@@ -57,6 +57,7 @@
 #include <asm/mach-jz4770/gpio.h>
 #include <asm/mach-jz4770/jz4770i2c.h>
 #include <asm/mach-jz4770/jz4770misc.h>
+#include <asm/mach-jz4770/jz4770gpio.h>
 #include <asm/mach-jz4770/mmc.h>
 #include <asm/mach-jz4770/platform.h>
 
@@ -65,6 +66,7 @@
 
 /* Video */
 
+#define GPIO_PANEL_BACKLIGHT	JZ_GPIO_PORTE(1)
 #define GPIO_PANEL_SOMETHING	JZ_GPIO_PORTF(0)
 
 static int gcw0_panel_init(void **out_panel,
@@ -76,14 +78,14 @@ static int gcw0_panel_init(void **out_panel,
 	if (ret)
 		return ret;
 
-	ret = devm_gpio_request(dev, GPIO_PANEL_SOMETHING, "LCD panel unknown");
-	if (ret) {
-		dev_err(dev,
-			"Failed to request LCD panel unknown pin: %d\n", ret);
-		return ret;
-	}
+	// ret = devm_gpio_request(dev, GPIO_PANEL_SOMETHING, "LCD panel unknown");
+	// if (ret) {
+		// dev_err(dev,
+			// "Failed to request LCD panel unknown pin: %d\n", ret);
+		// return ret;
+	// }
 
-	gpio_direction_output(GPIO_PANEL_SOMETHING, 1);
+	// gpio_direction_output(GPIO_PANEL_SOMETHING, 1);
 
 	return 0;
 }
@@ -96,14 +98,14 @@ static void gcw0_panel_exit(void *panel)
 static void gcw0_panel_enable(void *panel)
 {
 	//act8600_output_enable(6, true);
-
+	__gpio_as_pwm(1);
 	nt39016_panel_ops.enable(panel);
 }
 
 static void gcw0_panel_disable(void *panel)
 {
 	nt39016_panel_ops.disable(panel);
-
+	gpio_direction_output(GPIO_PANEL_BACKLIGHT,0);
 	//act8600_output_enable(6, false);
 }
 
