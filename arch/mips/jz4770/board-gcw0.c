@@ -105,7 +105,9 @@ static void gcw0_panel_enable(void *panel)
 static void gcw0_panel_disable(void *panel)
 {
 	nt39016_panel_ops.disable(panel);
-	gpio_direction_output(GPIO_PANEL_BACKLIGHT,0);
+	//gpio_direction_output(GPIO_PANEL_BACKLIGHT,0);
+	__gpio_as_output(GPIO_PANEL_BACKLIGHT);
+	__gpio_clear_pin(GPIO_PANEL_BACKLIGHT);
 	//act8600_output_enable(6, false);
 }
 
