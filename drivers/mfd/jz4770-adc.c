@@ -104,6 +104,11 @@ static inline void jz4770_adc_clk_disable(struct jz4770_adc *adc)
 		clk_disable(adc->clk);
 }
 
+static int jz4770_adc_set_cmd(struct jz4770_adc *adc, unsigned int val)
+{
+		writel(val, adc->base + JZ_REG_ADC_CMD);
+}
+
 static int jz4770_adc_set_clock(struct jz4770_adc *adc, unsigned int freq)
 {
 	unsigned int val, div, div_ms, div_us;
@@ -368,7 +373,16 @@ static int jz4770_adc_probe(struct platform_device *pdev)
 	writeb(JZ_ADC_ENABLE_POWER, adc->base + JZ_REG_ADC_ENABLE);
 	/* Mask all interrupts. */
 	writeb(0xFF, adc->base + JZ_REG_ADC_CTRL);
-
+	
+	//Initialize adcmd
+	readl(adc->base + JZ_REG_ADC_CMD);
+	jz4770_adc_set_cmd(adc, BIT(15) |BIT(25) |BIT(21)|BIT(18)|BIT(8));	//Y1
+	jz4770_adc_set_cmd(adc, BIT(15) |BIT(20) |BIT(16)|BIT(11)|BIT(10));	//X1
+	jz4770_adc_set_cmd(adc, BIT(15) |BIT(25) |BIT(21)|BIT(18)|BIT(7));	//Y2
+	jz4770_adc_set_cmd(adc, BIT(15) |BIT(20) |BIT(16)|BIT(11)|BIT(9));	//X2
+	jz4770_adc_set_cmd(adc, 0);
+	
+	
 	err = jz4770_adc_set_clock(adc, 100000);
 
 	clk_disable(adc->clk);

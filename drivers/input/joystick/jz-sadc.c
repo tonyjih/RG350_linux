@@ -39,7 +39,6 @@ struct jz_joystick {
 	struct platform_device *pdev;
 
 	void __iomem *base;
-
 	int irq;
 
 	const struct mfd_cell *cell;
@@ -50,16 +49,26 @@ struct jz_joystick {
 static irqreturn_t jz_joystick_irq_handler(int irq, void *devid)
 {
 	struct jz_joystick *joystick = devid;
-	unsigned long val;
-	int x, y;
+	long val,val2;
+	int x1, y1, x2, y2;
 
 	val = readl(joystick->base + JZ_REG_ADC_TS_DATA);
-	x = (val >> 16) & 0xFFF;
-	y = val & 0xFFF;
-	//printk("joystick: x=%d y=%d\n", x, y);
+	val2 = readl(joystick->base + JZ_REG_ADC_TS_DATA);
+	x1 = (val >> 16) & 0xFFF;
+	y1 = val & 0xFFF;
+	
+	x2 = (val2 >> 16) & 0xFFF;
+	y2 = val2 & 0xFFF;
+	
+	//printk("joystick: x=%d y=%d\n", x2, y2);
+	//printk("VAL = %x\n",val);
 
-	input_report_abs(joystick->input_dev, ABS_X, JOYSTICK_MAX_X - x);
-	input_report_abs(joystick->input_dev, ABS_Y, JOYSTICK_MAX_Y - y);
+	input_report_abs(joystick->input_dev, ABS_X, JOYSTICK_MAX_X - x1);
+	input_report_abs(joystick->input_dev, ABS_Y, JOYSTICK_MAX_Y - y1);
+	
+	input_report_abs(joystick->input_dev, ABS_RX, x2);
+	input_report_abs(joystick->input_dev, ABS_RY, y2);
+	
 	input_sync(joystick->input_dev);
 
 	return IRQ_HANDLED;
@@ -151,6 +160,10 @@ static int jz_joystick_probe(struct platform_device *pdev)
 			     JOYSTICK_NOISE_X, JOYSTICK_FLAT_X);
 	input_set_abs_params(input_dev, ABS_Y, 0, JOYSTICK_MAX_Y,
 			     JOYSTICK_NOISE_Y, JOYSTICK_FLAT_Y);
+	input_set_abs_params(input_dev, ABS_RX, 0, JOYSTICK_MAX_X,
+			     JOYSTICK_NOISE_X, JOYSTICK_FLAT_X);
+	input_set_abs_params(input_dev, ABS_RY, 0, JOYSTICK_MAX_Y,
+			     JOYSTICK_NOISE_Y, JOYSTICK_FLAT_Y);
 
 	input_set_drvdata(input_dev, joystick);
 	input_dev->open = jz_joystick_open;
@@ -170,9 +183,10 @@ static int jz_joystick_probe(struct platform_device *pdev)
 					| JZ_ADC_CONFIG_DMA_EN
 					| JZ_ADC_CONFIG_XYZ_MASK
 					| JZ_ADC_CONFIG_SAMPLE_NUM_MASK,
-			      JZ_ADC_CONFIG_RPU(4)
-					| JZ_ADC_CONFIG_SAMPLE_NUM(4));
-
+					JZ_ADC_CONFIG_CMD_SEL
+					| JZ_ADC_CONFIG_RPU(4)
+					| JZ_ADC_CONFIG_SAMPLE_NUM(4)
+					);
 	/* This timing results in approximately 50 measurements per second. */
 	writew(2, joystick->base + JZ_REG_ADC_TS_SAME);
 	writew(80, joystick->base + JZ_REG_ADC_TS_WAIT);

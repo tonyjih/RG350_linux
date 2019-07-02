@@ -724,6 +724,16 @@ static const struct linkdev_pdata_abs_map gcw0_abs_map[] = {
 		.axis_dest = ABS_Y,
 	},
 	{
+		.name = "analog joystick",
+		.axis = ABS_RX,
+		.axis_dest = ABS_RX,
+	},
+	{
+		.name = "analog joystick",
+		.axis = ABS_RY,
+		.axis_dest = ABS_RY,
+	},
+	{
 		.name = "gpio-keys",
 		.axis = ABS_HAT0X,
 		.axis_dest = ABS_HAT0X,
