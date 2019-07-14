@@ -39,6 +39,10 @@
 #define JZ_REG_ADC_STATUS		0x0C
 
 #define JZ_REG_ADC_TOUCHSCREEN_BASE	0x10
+#define JZ_REG_ADC_SAME	0x10
+#define JZ_REG_ADC_WAIT	0x14
+
+
 #define JZ_REG_ADC_BATTERY_BASE		0x1C
 #define JZ_REG_ADC_AUX_BASE		0x20
 
@@ -50,6 +54,29 @@
 #define JZ_ADC_ENABLE_TOUCHSCREEN	BIT(2)
 #define JZ_ADC_ENABLE_BATTERY		BIT(1)
 #define JZ_ADC_ENABLE_AUX		BIT(0)
+
+/* ADC Command Register (ADCMD) */
+#define ADCMD_PIL		BIT(31)
+#define ADCMD_RPU(n)		((n) << 26)
+#define ADCMD_XPSUP		BIT(25)
+#define ADCMD_YPSUP		BIT(23)
+#define	ADCMD_XNGRU		BIT(21)
+#define	ADCMD_YNGRU		BIT(20)
+#define	ADCMD_VREFNXN		BIT(18)
+#define	ADCMD_VREFNYN		BIT(16)
+#define ADCMD_VREFPXP		BIT(12)
+#define ADCMD_VREFPYP		BIT(11)
+#define ADCMD_XPADC		BIT(10)
+#define ADCMD_YPADC		BIT(8)
+#define ADCMD_XNADC		BIT(9)
+#define ADCMD_YNADC		BIT(7)
+
+#define ADCTRL_SLPENDM		BIT(5)
+#define ADCTRL_PENDM		BIT(4)
+#define ADCTRL_PENUM		BIT(3)
+#define ADCTRL_DTCHM		BIT(2)
+#define ADCTRL_VRDYM		BIT(1)
+#define ADCTRL_ARDYM		BIT(0)
 
 enum {
 	JZ_ADC_IRQ_ADCIN = 0,
@@ -104,10 +131,6 @@ static inline void jz4770_adc_clk_disable(struct jz4770_adc *adc)
 		clk_disable(adc->clk);
 }
 
-static int jz4770_adc_set_cmd(struct jz4770_adc *adc, unsigned int val)
-{
-		writel(val, adc->base + JZ_REG_ADC_CMD);
-}
 
 static int jz4770_adc_set_clock(struct jz4770_adc *adc, unsigned int freq)
 {
@@ -133,6 +156,7 @@ static int jz4770_adc_set_clock(struct jz4770_adc *adc, unsigned int freq)
 
 	return 0;
 }
+
 
 static int jz4770_adc_cell_enable(struct platform_device *pdev)
 {
@@ -206,12 +230,37 @@ int jz4770_adc_set_config(struct device *dev, uint32_t mask, uint32_t val)
 	cfg |= val;
 
 	writel(cfg, adc->base + JZ_REG_ADC_CFG);
-
+	
 	spin_unlock_irqrestore(&adc->lock, flags);
-
+	
 	return 0;
 }
 EXPORT_SYMBOL_GPL(jz4770_adc_set_config);
+
+int jz4770_adc_set_adcmd(struct device *dev)
+{
+	struct jz4770_adc *adc = dev_get_drvdata(dev);
+	unsigned long flags;
+
+	if (!adc)
+		return -ENODEV;
+
+	spin_lock_irqsave(&adc->lock, flags);
+		
+	//Initialize adcmd	
+	readl(adc->base + JZ_REG_ADC_CMD);
+
+	writel(ADCMD_XPSUP | ADCMD_XNGRU | ADCMD_VREFNXN | ADCMD_VREFPXP | ADCMD_YPADC, adc->base + JZ_REG_ADC_CMD);
+	writel(ADCMD_YPSUP | ADCMD_YNGRU | ADCMD_VREFNYN | ADCMD_VREFPYP | ADCMD_XPADC, adc->base + JZ_REG_ADC_CMD);
+	writel(ADCMD_XPSUP | ADCMD_XNGRU | ADCMD_VREFNXN | ADCMD_VREFPXP | ADCMD_YNADC, adc->base + JZ_REG_ADC_CMD);
+	writel(ADCMD_YPSUP | ADCMD_YNGRU | ADCMD_VREFNYN | ADCMD_VREFPYP | ADCMD_XNADC, adc->base + JZ_REG_ADC_CMD);
+	writel(0, adc->base + JZ_REG_ADC_CMD);
+
+	spin_unlock_irqrestore(&adc->lock, flags);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(jz4770_adc_set_adcmd);
+
 
 static struct resource jz4770_aux_resources[] = {
 	{
@@ -371,17 +420,11 @@ static int jz4770_adc_probe(struct platform_device *pdev)
 
 	/* Disable all cells and power off. */
 	writeb(JZ_ADC_ENABLE_POWER, adc->base + JZ_REG_ADC_ENABLE);
+
 	/* Mask all interrupts. */
 	writeb(0xFF, adc->base + JZ_REG_ADC_CTRL);
 	
-	//Initialize adcmd
-	readl(adc->base + JZ_REG_ADC_CMD);
-	jz4770_adc_set_cmd(adc, BIT(15) |BIT(25) |BIT(21)|BIT(18)|BIT(8));	//Y1
-	jz4770_adc_set_cmd(adc, BIT(15) |BIT(20) |BIT(16)|BIT(11)|BIT(10));	//X1
-	jz4770_adc_set_cmd(adc, BIT(15) |BIT(25) |BIT(21)|BIT(18)|BIT(7));	//Y2
-	jz4770_adc_set_cmd(adc, BIT(15) |BIT(20) |BIT(16)|BIT(11)|BIT(9));	//X2
-	jz4770_adc_set_cmd(adc, 0);
-	
+
 	
 	err = jz4770_adc_set_clock(adc, 100000);
 

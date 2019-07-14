@@ -78,6 +78,9 @@ static long jz_battery_read_voltage(struct jz_battery *battery)
 	INIT_COMPLETION(battery->read_completion);
 
 	battery->cell->enable(battery->pdev);
+	jz4770_adc_set_config(battery->pdev->dev.parent,
+				JZ_ADC_CONFIG_CMD_SEL,0	);
+
 	enable_irq(battery->irq);
 
 	t = wait_for_completion_interruptible_timeout(&battery->read_completion,
@@ -94,6 +97,9 @@ static long jz_battery_read_voltage(struct jz_battery *battery)
 	}
 
 	disable_irq(battery->irq);
+	jz4770_adc_set_config(battery->pdev->dev.parent,
+				JZ_ADC_CONFIG_CMD_SEL,JZ_ADC_CONFIG_CMD_SEL);
+
 	battery->cell->disable(battery->pdev);
 
 	mutex_unlock(&battery->lock);

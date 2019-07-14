@@ -49,7 +49,7 @@ struct jz_joystick {
 static irqreturn_t jz_joystick_irq_handler(int irq, void *devid)
 {
 	struct jz_joystick *joystick = devid;
-	long val,val2;
+	unsigned long val,val2;
 	int x1, y1, x2, y2;
 
 	val = readl(joystick->base + JZ_REG_ADC_TS_DATA);
@@ -171,22 +171,16 @@ static int jz_joystick_probe(struct platform_device *pdev)
 
 
 	/* Initialize touch screen registers. */
-
 	joystick->cell->enable(pdev);
 
 	/* Read 4 samples for each measurement. */
 	jz4770_adc_set_config(pdev->dev.parent,
-			      JZ_ADC_CONFIG_SPZZ
-					| JZ_ADC_CONFIG_WIRE_SEL
-					| JZ_ADC_CONFIG_CMD_SEL
-					| JZ_ADC_CONFIG_RPU_MASK
-					| JZ_ADC_CONFIG_DMA_EN
-					| JZ_ADC_CONFIG_XYZ_MASK
+					JZ_ADC_CONFIG_CMD_SEL
 					| JZ_ADC_CONFIG_SAMPLE_NUM_MASK,
 					JZ_ADC_CONFIG_CMD_SEL
-					| JZ_ADC_CONFIG_RPU(4)
 					| JZ_ADC_CONFIG_SAMPLE_NUM(4)
 					);
+	jz4770_adc_set_adcmd(pdev->dev.parent);
 	/* This timing results in approximately 50 measurements per second. */
 	writew(2, joystick->base + JZ_REG_ADC_TS_SAME);
 	writew(80, joystick->base + JZ_REG_ADC_TS_WAIT);

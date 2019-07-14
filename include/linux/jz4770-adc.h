@@ -15,7 +15,7 @@ struct device;
  * options in the shared config register.
 */
 int jz4770_adc_set_config(struct device *dev, uint32_t mask, uint32_t val);
-
+int jz4770_adc_set_adcmd(struct device *dev);
 #define JZ_ADC_CONFIG_SPZZ		BIT(31)
 #define JZ_ADC_CONFIG_WIRE_SEL		BIT(23)
 #define JZ_ADC_CONFIG_CMD_SEL		BIT(22)
