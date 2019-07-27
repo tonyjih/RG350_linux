@@ -41,10 +41,6 @@ static struct snd_soc_jack gcw0_avout_jack;
 
 static struct snd_soc_jack_pin gcw0_avout_jack_pins[] = {
 	{
-		.pin		= "Headphone",
-		.mask		= SND_JACK_HEADPHONE,
-	},
-	{
 		.pin		= "Speakers",
 		.mask		= SND_JACK_HEADPHONE,
 		.invert		= 1,
