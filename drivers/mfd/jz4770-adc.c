@@ -39,12 +39,11 @@
 #define JZ_REG_ADC_STATUS		0x0C
 
 #define JZ_REG_ADC_TOUCHSCREEN_BASE	0x10
-#define JZ_REG_ADC_SAME	0x10
-#define JZ_REG_ADC_WAIT	0x14
 
 
 #define JZ_REG_ADC_BATTERY_BASE		0x1C
 #define JZ_REG_ADC_AUX_BASE		0x20
+
 
 #define JZ_REG_ADC_CMD			0x24
 #define JZ_REG_ADC_CLKDIV		0x28
@@ -59,17 +58,26 @@
 #define ADCMD_PIL		BIT(31)
 #define ADCMD_RPU(n)		((n) << 26)
 #define ADCMD_XPSUP		BIT(25)
+#define ADCMD_XNSUP		BIT(24)
 #define ADCMD_YPSUP		BIT(23)
+#define ADCMD_XPGRU		BIT(22)
 #define	ADCMD_XNGRU		BIT(21)
 #define	ADCMD_YNGRU		BIT(20)
+#define	ADCMD_VREFAUX		BIT(19)
 #define	ADCMD_VREFNXN		BIT(18)
+#define	ADCMD_VREFNXP		BIT(17)
 #define	ADCMD_VREFNYN		BIT(16)
+#define	ADCMD_VREFPVDD33	BIT(15)
+#define ADCMD_VREFPAUX		BIT(14)
+#define ADCMD_VREFPXN		BIT(13)
 #define ADCMD_VREFPXP		BIT(12)
 #define ADCMD_VREFPYP		BIT(11)
 #define ADCMD_XPADC		BIT(10)
-#define ADCMD_YPADC		BIT(8)
 #define ADCMD_XNADC		BIT(9)
+#define ADCMD_YPADC		BIT(8)
 #define ADCMD_YNADC		BIT(7)
+#define ADCMD_RPUXP		BIT(2)
+#define ADCMD_RPUYP		BIT(1)
 
 #define ADCTRL_SLPENDM		BIT(5)
 #define ADCTRL_PENDM		BIT(4)

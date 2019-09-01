@@ -108,6 +108,10 @@ const struct linux_logo * __init_refok fb_find_logo(int depth)
 		/* RG350 / OpenDingux logo */
 		logo = &logo_rg350_clut224;
 #endif
+#ifdef CONFIG_LOGO_RG350_NOOD_CLUT224
+		/* RG350 / OpenDingux logo */
+		logo = &logo_rg350_nood_clut224;
+#endif
 	}
 	return logo;
 }

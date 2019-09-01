@@ -340,7 +340,7 @@ static const unsigned int i2c0_pins[] = { GPD(30), GPD(31), };
 static const u8           i2c0_sels[] = { 0,       0,       };
 static const unsigned int i2c1_pins[] = { GPE(30), GPE(31), };
 static const u8           i2c1_sels[] = { 0,       0,       };
-static const unsigned int i2c2_pins[] = { GPF(16), GPF(17), };
+static const unsigned int i2c2_pins[] = { GPD(4), GPD(5), };
 static const u8           i2c2_sels[] = { 2,       2,       };
 
 static const unsigned int pwm0_pins[] = { GPE(0),  };

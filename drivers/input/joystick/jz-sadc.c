@@ -1,9 +1,12 @@
-/*
+/*`
  * Joystick driver for analog stick connected to JZ4770 SADC touch screen
  * input pins.
  *
  * Copyright (C) 2012, Maarten ter Huurne <maarten@treewalker.org>
  *
+ * RG-350 specific modifications:
+ * Copyright (C) 2019, Tony Jih <tonyjih@gmail.com>
+
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -27,12 +30,34 @@
 #define JZ_REG_ADC_TS_WAIT	4
 #define JZ_REG_ADC_TS_DATA	8
 
-#define JOYSTICK_MAX_X		3300
-#define JOYSTICK_MAX_Y		3300
-#define JOYSTICK_NOISE_X	4
-#define JOYSTICK_NOISE_Y	4
-#define JOYSTICK_FLAT_X		200
-#define JOYSTICK_FLAT_Y		200
+#define JOYSTICK_MIN_X1		0
+#define JOYSTICK_MIN_Y1		0
+#define JOYSTICK_MIN_X2		0
+#define JOYSTICK_MIN_Y2		0
+
+#define JOYSTICK_MAX_X1		3300
+#define JOYSTICK_MAX_Y1		3300
+#define JOYSTICK_MAX_X2		3300
+#define JOYSTICK_MAX_Y2		3300
+#define JOYSTICK_NOISE_X1	4
+#define JOYSTICK_NOISE_Y1	4
+#define JOYSTICK_NOISE_X2	4
+#define JOYSTICK_NOISE_Y2	4
+#define JOYSTICK_FLAT_X1	400
+#define JOYSTICK_FLAT_Y1	400
+#define JOYSTICK_FLAT_X2	400
+#define JOYSTICK_FLAT_Y2	400
+
+// #define JOYSTICK_SHIFT_X1	(150)
+// #define JOYSTICK_SHIFT_Y1	(-150)
+// #define JOYSTICK_SHIFT_X2	(-230)
+// #define JOYSTICK_SHIFT_Y2	(0)
+
+
+#define JOYSTICK_SHIFT_X1	(0)
+#define JOYSTICK_SHIFT_Y1	(0)
+#define JOYSTICK_SHIFT_X2	(0)
+#define JOYSTICK_SHIFT_Y2	(0)
 
 struct jz_joystick {
 	struct input_dev *input_dev;
@@ -60,14 +85,14 @@ static irqreturn_t jz_joystick_irq_handler(int irq, void *devid)
 	x2 = (val2 >> 16) & 0xFFF;
 	y2 = val2 & 0xFFF;
 	
-	//printk("joystick: x=%d y=%d\n", x2, y2);
-	//printk("VAL = %x\n",val);
+	// printk("joystick: x1=%d y1=%d\n", x1, y1);
+	// printk("joystick: x2=%d y2=%d\n", x2, y2);
 
-	input_report_abs(joystick->input_dev, ABS_X, JOYSTICK_MAX_X - x1);
-	input_report_abs(joystick->input_dev, ABS_Y, JOYSTICK_MAX_Y - y1);
+	input_report_abs(joystick->input_dev, ABS_X, JOYSTICK_MAX_X1 - x1 + JOYSTICK_SHIFT_X1);
+	input_report_abs(joystick->input_dev, ABS_Y, JOYSTICK_MAX_Y1 - y1 + JOYSTICK_SHIFT_Y1);
 	
-	input_report_abs(joystick->input_dev, ABS_RX, x2);
-	input_report_abs(joystick->input_dev, ABS_RY, y2);
+	input_report_abs(joystick->input_dev, ABS_RX, x2 + JOYSTICK_SHIFT_X2);
+	input_report_abs(joystick->input_dev, ABS_RY, y2 + JOYSTICK_SHIFT_Y2);
 	
 	input_sync(joystick->input_dev);
 
@@ -156,14 +181,14 @@ static int jz_joystick_probe(struct platform_device *pdev)
 	input_dev->dev.parent = &pdev->dev;
 
 	__set_bit(EV_ABS, input_dev->evbit);
-	input_set_abs_params(input_dev, ABS_X, 0, JOYSTICK_MAX_X,
-			     JOYSTICK_NOISE_X, JOYSTICK_FLAT_X);
-	input_set_abs_params(input_dev, ABS_Y, 0, JOYSTICK_MAX_Y,
-			     JOYSTICK_NOISE_Y, JOYSTICK_FLAT_Y);
-	input_set_abs_params(input_dev, ABS_RX, 0, JOYSTICK_MAX_X,
-			     JOYSTICK_NOISE_X, JOYSTICK_FLAT_X);
-	input_set_abs_params(input_dev, ABS_RY, 0, JOYSTICK_MAX_Y,
-			     JOYSTICK_NOISE_Y, JOYSTICK_FLAT_Y);
+	input_set_abs_params(input_dev, ABS_X, JOYSTICK_MIN_X1, JOYSTICK_MAX_X1,
+			     JOYSTICK_NOISE_X1, JOYSTICK_FLAT_X1);
+	input_set_abs_params(input_dev, ABS_Y, JOYSTICK_MIN_Y1, JOYSTICK_MAX_Y1,
+			     JOYSTICK_NOISE_Y1, JOYSTICK_FLAT_Y1);
+	input_set_abs_params(input_dev, ABS_RX, JOYSTICK_MIN_X2, JOYSTICK_MAX_X2,
+			     JOYSTICK_NOISE_X2, JOYSTICK_FLAT_X2);
+	input_set_abs_params(input_dev, ABS_RY, JOYSTICK_MIN_Y2, JOYSTICK_MAX_Y2,
+			     JOYSTICK_NOISE_Y2, JOYSTICK_FLAT_Y2);
 
 	input_set_drvdata(input_dev, joystick);
 	input_dev->open = jz_joystick_open;
@@ -180,8 +205,8 @@ static int jz_joystick_probe(struct platform_device *pdev)
 					JZ_ADC_CONFIG_CMD_SEL
 					| JZ_ADC_CONFIG_SAMPLE_NUM(4)
 					);
-	jz4770_adc_set_adcmd(pdev->dev.parent);
 	/* This timing results in approximately 50 measurements per second. */
+	jz4770_adc_set_adcmd(pdev->dev.parent);
 	writew(2, joystick->base + JZ_REG_ADC_TS_SAME);
 	writew(80, joystick->base + JZ_REG_ADC_TS_WAIT);
 

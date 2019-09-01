@@ -426,7 +426,7 @@ static struct platform_device gcw0_internal_usb_regulator_device = {
 
 /* USB OTG (musb) */
 
-#define GPIO_USB_OTG_ID_PIN	JZ_GPIO_PORTF(18)
+#define GPIO_USB_OTG_ID_PIN	JZ_GPIO_PORTF(16)
 
 static struct jz_otg_board_data gcw0_otg_board_data = {
 	.gpio_id_pin = GPIO_USB_OTG_ID_PIN,
@@ -643,6 +643,7 @@ static const struct linkdev_pdata_device_info gcw0_joystick_devices[] = {
 		.handlers_whitelist = gcw0_joystick_gpiokeys_whitelist,
 		.nb_handlers = ARRAY_SIZE(gcw0_joystick_gpiokeys_whitelist),
 	},
+
 };
 
 static const struct linkdev_pdata_key_map gcw0_key_map[] = {
@@ -724,16 +725,6 @@ static const struct linkdev_pdata_abs_map gcw0_abs_map[] = {
 		.axis_dest = ABS_Y,
 	},
 	{
-		.name = "analog joystick",
-		.axis = ABS_RX,
-		.axis_dest = ABS_RX,
-	},
-	{
-		.name = "analog joystick",
-		.axis = ABS_RY,
-		.axis_dest = ABS_RY,
-	},
-	{
 		.name = "gpio-keys",
 		.axis = ABS_HAT0X,
 		.axis_dest = ABS_HAT0X,
@@ -743,6 +734,17 @@ static const struct linkdev_pdata_abs_map gcw0_abs_map[] = {
 		.axis = ABS_HAT0Y,
 		.axis_dest = ABS_HAT0Y,
 	},
+	{
+		.name = "analog joystick",
+		.axis = ABS_RX,
+		.axis_dest = ABS_RX,
+	},
+	{
+		.name = "analog joystick",
+		.axis = ABS_RY,
+		.axis_dest = ABS_RY,
+	},
+
 };
 
 static struct linkdev_platform_data gcw0_joystick_pdata = {
