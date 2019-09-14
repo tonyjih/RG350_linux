@@ -343,8 +343,8 @@ static struct jz_battery_platform_data gcw0_battery_pdata = {
 	.info = {
 		.name = "battery",
 		.technology = POWER_SUPPLY_TECHNOLOGY_LIPO,
-		.voltage_max_design = 5700000,
-		.voltage_min_design = 4600000,
+		.voltage_max_design = 3900000,
+		.voltage_min_design = 3300000,
 	},
 };
 
@@ -430,6 +430,7 @@ static struct platform_device gcw0_internal_usb_regulator_device = {
 
 static struct jz_otg_board_data gcw0_otg_board_data = {
 	.gpio_id_pin = GPIO_USB_OTG_ID_PIN,
+	
 	.gpio_id_debounce_ms = 500,
 };
 

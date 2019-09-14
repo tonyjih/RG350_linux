@@ -89,9 +89,10 @@ static long jz_battery_read_voltage(struct jz_battery *battery)
 	if (t > 0) {
 		val = readw(battery->base) & 0xfff;
 		// Note: The docs say the max value corresponds to 1.2V,
-		//       but my own measurements put it around 6.6V (2 * 3.3V).
+		//       but my own measurements put it around 6.6V (2 * 3.3V).		
 		//       This factor could be board specific.
-		voltage = (long)((val * 103125UL) >> 6UL);
+		// TonyJih : 5.0V for RG350
+		voltage = (long)((val * 78125UL) >> 6UL);
 	} else {
 		voltage = t ? t : -ETIMEDOUT;
 	}
