@@ -48,9 +48,6 @@ static int pwm_haptic_play(struct input_dev *input, void *data,
 	unsigned int level = effect->u.rumble.strong_magnitude;
 	u64 duty;
 
-	if (!level)
-		return 0;
-
 	dev_dbg(haptic->dev, "Configuring PWM for %u%%\n", (level * 100) >> 16);
 	duty = ((u64) haptic->pwm_period * level) >> 16;
 	return pwm_config(haptic->pwm, (int) duty, haptic->pwm_period);
