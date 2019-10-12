@@ -32,13 +32,13 @@
 
 #define JOYSTICK_MIN_X1		2000
 #define JOYSTICK_MIN_Y1		2000
-#define JOYSTICK_MIN_X2		900
-#define JOYSTICK_MIN_Y2		900
+#define JOYSTICK_MIN_X2		500
+#define JOYSTICK_MIN_Y2		500
 
 #define JOYSTICK_MAX_X1		1300
 #define JOYSTICK_MAX_Y1		1300
-#define JOYSTICK_MAX_X2		2400
-#define JOYSTICK_MAX_Y2		2400
+#define JOYSTICK_MAX_X2		2800
+#define JOYSTICK_MAX_Y2		2800
 #define JOYSTICK_NOISE_X1	4
 #define JOYSTICK_NOISE_Y1	4
 #define JOYSTICK_NOISE_X2	4
@@ -76,7 +76,7 @@ static irqreturn_t jz_joystick_irq_handler(int irq, void *devid)
 	y2 = val2 & 0xFFF;
 	
 	//printk("joystick: x1=%d y1=%d\n", x1, y1);
-	// printk("joystick: x2=%d y2=%d\n", x2, y2);
+	//printk("joystick: x2=%d y2=%d\n", x2, y2);
 
 	input_report_abs(joystick->input_dev, ABS_X, x1);
 	input_report_abs(joystick->input_dev, ABS_Y, y1);
