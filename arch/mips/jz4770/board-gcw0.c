@@ -706,12 +706,30 @@ static const struct linkdev_pdata_key_map gcw0_key_map[] = {
 	},
 	{
 		.code = KEY_TAB,
-		.event.code = BTN_THUMBL,
+		.event.code = BTN_TL,
 	},
 	{
 		.code = KEY_BACKSPACE,
+		.event.code = BTN_TR,
+	},
+	/*RG350*/
+	{
+		.code = KEY_PAGEUP,
+		.event.code = BTN_TL2,
+	},
+	{
+		.code = KEY_PAGEDOWN,
+		.event.code = BTN_TR2,
+	},
+	{
+		.code = KEY_KPSLASH,
+		.event.code = BTN_THUMBL,
+	},
+	{
+		.code = KEY_KPDOT,
 		.event.code = BTN_THUMBR,
 	},
+
 };
 
 static const struct linkdev_pdata_abs_map gcw0_abs_map[] = {
