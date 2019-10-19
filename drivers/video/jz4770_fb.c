@@ -3,6 +3,7 @@
  *
  * Copyright (C) 2012, Maarten ter Huurne <maarten@treewalker.org>
  * Copyright (C) 2014, Paul Cercueil <paul@crapouillou.net>
+ * Copyright (C) 2018, Daniel Silsby <dansilsby@gmail.com>
  *
  * Based on the JZ4760 frame buffer driver:
  * Copyright (C) 2005-2008, Ingenic Semiconductor Inc.
@@ -18,7 +19,7 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/mutex.h>
+#include <linux/spinlock.h>
 #include <linux/errno.h>
 #include <linux/string.h>
 #include <linux/mm.h>
@@ -29,7 +30,7 @@
 #include <linux/gcd.h>
 #include <linux/init.h>
 #include <linux/dma-mapping.h>
-#include <linux/platform_data/jz4770_fb.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/pm.h>
@@ -38,28 +39,29 @@
 #include <linux/wait.h>
 
 #include <asm/addrspace.h>
-#include <asm/irq.h>
 #include <asm/page.h>
+#include <asm/irq.h>
 #include <asm/pgtable.h>
 #include <asm/uaccess.h>
 #include <asm/processor.h>
 
-#include <asm/mach-jz4770/jz4770cpm.h>
-#include <asm/mach-jz4770/jz4770lcdc.h>
-#include <asm/mach-jz4770/jz4770misc.h>
-#include <asm/mach-jz4770/ipu.h>
-
-#include <video/jzpanel.h>
-
-#include "console/fbcon.h"
+#include "jz4770_ipu.h"
+#include "jz4770_lcdc.h"
 
 #define MAX_XRES 640
 #define MAX_YRES 480
 
-struct jz4760lcd_panel_t {
+/* Signed 15.16 fixed-point math (for bicubic scaling coefficients) */
+#define I2F(i) ((int32_t)(i) * 65536)
+#define F2I(f) ((f) / 65536)
+#define FMUL(fa, fb) ((int32_t)(((int64_t)(fa) * (int64_t)(fb)) / 65536))
+
+struct jz_panel {
 	unsigned int cfg;	/* panel mode and pin usage etc. */
-	unsigned int w;		/* Panel Width(in pixel) */
-	unsigned int h;		/* Panel Height(in line) */
+	unsigned int bw;	/* panel background width (in pixels) */
+	unsigned int bh;	/* panel background height (in lines) */
+	unsigned int dw;	/* panel display area width (in pixels) */
+	unsigned int dh;	/* panel display area height (in lines) */
 	unsigned int fclk;	/* frame clk */
 	unsigned int hsw;	/* hsync width, in pclk */
 	unsigned int vsw;	/* vsync width, in line count */
@@ -69,30 +71,24 @@ struct jz4760lcd_panel_t {
 	unsigned int bfw;	/* begin of frame, in line count */
 };
 
-static const struct jz4760lcd_panel_t jz4760_lcd_panel = {
-	.cfg = LCD_CFG_LCDPIN_LCD | LCD_CFG_RECOVER | /* Underrun recover */
-	       LCD_CFG_MODE_GENERIC_TFT | /* General TFT panel */
-	       LCD_CFG_MODE_TFT_24BIT | 	/* output 24bpp */
-	       /*LCD_CFG_PCP |*/	/* Pixel clock polarity: falling edge */
-	       LCD_CFG_HSP | 	/* Hsync polarity: active low */
-	       LCD_CFG_VSP,	/* Vsync polarity: leading edge is falling edge */
-	/* w, h, fclk, hsw, vsw, elw, blw, efw, bfw */
-	320,240,60,4,2,8,40,8,10,
-	//320, 240, 60, 50, 1, 10, 70, 5, 5,
+static const struct jz_panel jz4770_lcd_panel = {
+	.cfg = LCD_CFG_LCDPIN_LCD | LCD_CFG_RECOVER |	/* Underrun recover */
+		LCD_CFG_MODE_GENERIC_TFT |	/* General TFT panel */
+		LCD_CFG_MODE_TFT_24BIT |	/* output 24bpp */
+		LCD_CFG_PCP |	/* Pixel clock polarity: falling edge */
+		LCD_CFG_HSP |	/* Hsync polarity: active low */
+		LCD_CFG_VSP,	/* Vsync polarity: leading edge is falling edge */
+	/* bw, bh, dw, dh, fclk, hsw, vsw, elw, blw, efw, bfw */
+	320, 240, 320, 240, 60, 50, 1, 10, 70, 5, 5,
 	/* Note: 432000000 / 72 = 60 * 400 * 250, so we get exactly 60 Hz. */
 };
 
-/* default output to lcd panel */
-static const struct jz4760lcd_panel_t *jz_panel = &jz4760_lcd_panel;
-
 struct jzfb {
 	struct fb_info *fb;
-	struct jzfb_platform_data *pdata;
 	struct platform_device *pdev;
-	void *panel;
 
 	uint32_t pseudo_palette[16];
-	unsigned int bpp;	/* Current 'bits per pixel' value (32 or 16) */
+	unsigned int bpp;	/* Current 'bits per pixel' value (32,16,15) */
 
 	uint32_t pan_offset;
 	uint32_t vsync_count;
@@ -100,7 +96,7 @@ struct jzfb {
 
 	struct clk *lpclk, *ipuclk;
 
-	struct mutex lock;
+	spinlock_t lock;
 	bool is_enabled;
 	/*
 	 * Number of frames to wait until doing a forced foreground flush.
@@ -113,12 +109,25 @@ struct jzfb {
 
 	void __iomem *base;
 	void __iomem *ipu_base;
+
+	const struct jz_panel *panel;
 };
 
 static void *lcd_frame1;
 
 static bool keep_aspect_ratio = true;
 static bool allow_downscaling = false;
+static bool integer_scaling = false;
+
+/*
+ * Sharpness settings range is [0,32]
+ * 0       : nearest-neighbor
+ * 1       : bilinear
+ * 2 .. 32 : bicubic (translating to sharpness factor -0.25 .. -4.0 internally)
+ */
+#define SHARPNESS_INCR (I2F(-1) / 8)
+static unsigned int sharpness_upscaling   = 8;      /* -0.125 * 8 = -1.0 */
+static unsigned int sharpness_downscaling = 8;      /* -0.125 * 8 = -1.0 */
 
 static void ctrl_enable(struct jzfb *jzfb)
 {
@@ -129,27 +138,38 @@ static void ctrl_enable(struct jzfb *jzfb)
 
 static void ctrl_disable(struct jzfb *jzfb)
 {
-	unsigned int cnt;
+	int cnt;
 	u32 val;
+
+	/*
+	 * Although marked as write-only in the manual, reading the ENA bit
+	 * works fine in practice. We check it to avoid a timeout on boot
+	 * when we don't know whether the LCDC is active: a boot loader may
+	 * or may not have activated it.
+	 */
+	if (!(readl(jzfb->base + LCD_CTRL) & LCD_CTRL_ENA))
+		return;
 
 	/* Use regular disable: finishes current frame, then stops. */
 	val = readl(jzfb->base + LCD_CTRL) | LCD_CTRL_DIS;
 	writel(val, jzfb->base + LCD_CTRL);
 
 	/* Wait 20 ms for frame to end (at 60 Hz, one frame is 17 ms). */
-	for (cnt = 20; cnt; cnt -= 4) {
-		if (readl(jzfb->base + LCD_STATE) & LCD_STATE_LDD)
+	cnt = 20;
+	while (!(readl(jzfb->base + LCD_STATE) & LCD_STATE_LDD)) {
+		if (cnt <= 0) {
+			dev_err(&jzfb->pdev->dev, "LCD disable timeout!\n");
 			break;
+		}
 		msleep(4);
+		cnt -= 4;
 	}
-	if (!cnt)
-		dev_err(&jzfb->pdev->dev, "LCD disable timeout!\n");
 
 	val = readl(jzfb->base + LCD_STATE);
 	writel(val & ~LCD_STATE_LDD, jzfb->base + LCD_STATE);
 }
 
-static int jz4760fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
+static int jzfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 			      u_int transp, struct fb_info *fb)
 {
 	struct jzfb *jzfb = fb->par;
@@ -157,18 +177,21 @@ static int jz4760fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	if (regno >= ARRAY_SIZE(jzfb->pseudo_palette))
 		return 1;
 
-	if (fb->var.bits_per_pixel == 16)
+	if (fb->var.bits_per_pixel == 15)
 		((u32 *)fb->pseudo_palette)[regno] =
-				(red & 0xf800) | ((green & 0xfc00) >> 5) | (blue >> 11);
+			((red & 0xf800) >> 1) | ((green & 0xf800) >> 6) | (blue >> 11);
+	else if (fb->var.bits_per_pixel == 16)
+		((u32 *)fb->pseudo_palette)[regno] =
+			(red & 0xf800) | ((green & 0xfc00) >> 5) | (blue >> 11);
 	else
 		((u32 *)fb->pseudo_palette)[regno] =
-				((red & 0xff00) << 8) | (green & 0xff00) | (blue >> 8);
+			((red & 0xff00) << 8) | (green & 0xff00) | (blue >> 8);
 
 	return 0;
 }
 
 /* Use mmap /dev/fb can only get a non-cacheable Virtual Address. */
-static int jz4760fb_mmap(struct fb_info *fb, struct vm_area_struct *vma)
+static int jzfb_mmap(struct fb_info *fb, struct vm_area_struct *vma)
 {
 	unsigned long start;
 	unsigned long off;
@@ -206,7 +229,8 @@ static int reduce_fraction(unsigned int *num, unsigned int *denom)
 {
 	unsigned long d = gcd(*num, *denom);
 
-	if (*num > 32 * d)
+	/* The scaling table has only 31 entries */
+	if (*num > 31 * d)
 		return -EINVAL;
 
 	*num /= d;
@@ -216,10 +240,12 @@ static int reduce_fraction(unsigned int *num, unsigned int *denom)
 
 /* checks var and eventually tweaks it to something supported,
  * DO NOT MODIFY PAR */
-static int jz4760fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
+static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 {
 	struct jzfb *jzfb = fb->par;
+	const struct jz_panel *panel = jzfb->panel;
 	unsigned int num, denom;
+	unsigned int framerate, divider;
 
 	/* The minimum input size for the IPU to work is 4x4 */
 	if (var->xres < 4)
@@ -228,20 +254,20 @@ static int jz4760fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 		var->yres = 4;
 
 	if (!allow_downscaling) {
-		if (var->xres > jz_panel->w)
-			var->xres = jz_panel->w;
-		if (var->yres > jz_panel->h)
-			var->yres = jz_panel->h;
+		if (var->xres > panel->dw)
+			var->xres = panel->dw;
+		if (var->yres > panel->dh)
+			var->yres = panel->dh;
 	}
 
 	/* Adjust the input size until we find a valid configuration */
-	for (num = jz_panel->w, denom = var->xres; var->xres <= MAX_XRES &&
+	for (num = panel->dw, denom = var->xres; var->xres <= MAX_XRES &&
 			reduce_fraction(&num, &denom) < 0;
 			denom++, var->xres++);
 	if (var->xres > MAX_XRES)
 		return -EINVAL;
 
-	for (num = jz_panel->h, denom = var->yres; var->yres <= MAX_YRES &&
+	for (num = panel->dh, denom = var->yres; var->yres <= MAX_YRES &&
 			reduce_fraction(&num, &denom) < 0;
 			denom++, var->yres++);
 	if (var->yres > MAX_YRES)
@@ -254,28 +280,62 @@ static int jz4760fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 	var->vmode = FB_VMODE_NONINTERLACED;
 	var->yoffset = 0;
 
-	if (var->bits_per_pixel != 32 && var->bits_per_pixel != 16)
+	if (var->bits_per_pixel == 15) {
+		var->transp.offset = 15;
+		var->transp.length = 1;
+		var->red.length = var->green.length = var->blue.length = 5;
+
+		/* Force conventional RGB ordering, unless BGR is requested. */
+		if (var->blue.offset != 10 || var->green.offset != 5 ||
+				var->red.offset != 0) {
+			var->red.offset = 10;
+			var->green.offset = 5;
+			var->blue.offset = 0;
+		}
+	} else if (var->bits_per_pixel == 16) {
+		var->transp.offset = 0;
+		var->transp.length = 0;
+		var->red.length = var->blue.length = 5;
+		var->green.length = 6;
+
+		/* Force conventional RGB ordering, unless BGR is requested. */
+		if (var->blue.offset != 11 || var->green.offset != 5 ||
+				var->red.offset != 0) {
+			var->red.offset = 11;
+			var->green.offset = 5;
+			var->blue.offset = 0;
+		}
+	} else {
+		/* Force 32bpp if it's not already */
 		var->bits_per_pixel = 32;
 
-	if (var->bits_per_pixel == 16) {
-		var->transp.length = 0;
-		var->blue.length = var->red.length = 5;
-		var->green.length = 6;
-		var->transp.offset = 0;
-		var->red.offset = 11;
-		var->green.offset = 5;
-		var->blue.offset = 0;
-	} else {
 		var->transp.offset = 24;
-		var->red.offset = 16;
-		var->green.offset = 8;
-		var->blue.offset = 0;
 		var->transp.length = var->red.length =
 				var->green.length = var->blue.length = 8;
+
+		/* Force conventional RGB ordering, unless BGR is requested. */
+		if (var->blue.offset != 16 || var->green.offset != 8 ||
+				var->red.offset != 0) {
+			var->red.offset = 16;
+			var->green.offset = 8;
+			var->blue.offset = 0;
+		}
 	}
 
 	jzfb->clear_fb = var->bits_per_pixel != fb->var.bits_per_pixel ||
 		var->xres != fb->var.xres || var->yres != fb->var.yres;
+
+	divider = (panel->bw + panel->elw + panel->blw)
+		* (panel->bh + panel->efw + panel->bfw);
+	if (var->pixclock) {
+		framerate = var->pixclock / divider;
+		if (framerate > panel->fclk)
+			framerate = panel->fclk;
+	} else {
+		framerate = panel->fclk;
+	}
+
+	var->pixclock = framerate * divider;
 	return 0;
 }
 
@@ -296,7 +356,6 @@ static void jzfb_update_frame_address(struct jzfb *jzfb)
 
 static void jzfb_lcdc_enable(struct jzfb *jzfb)
 {
-	clk_enable(jzfb->lpclk);
 	jzfb_update_frame_address(jzfb);
 
 	jzfb->delay_flush = 0;
@@ -335,8 +394,6 @@ static void jzfb_ipu_enable(struct jzfb *jzfb)
 {
 	u32 ctrl;
 
-	clk_enable(jzfb->ipuclk);
-
 	/* Clear the status register and enable the chip */
 	writel(0, jzfb->ipu_base + IPU_STATUS);
 
@@ -367,39 +424,123 @@ static void jzfb_ipu_disable(struct jzfb *jzfb)
 	writel(ctrl & ~IPU_CTRL_CHIP_EN, jzfb->ipu_base + IPU_CTRL);
 }
 
-static void set_downscale_bilinear_coefs(struct jzfb *jzfb, unsigned int reg,
+/*
+ * Apply conventional cubic convolution kernel. Both parameters
+ *  and return value are 15.16 signed fixed-point.
+ *
+ *  @f_a: Sharpness factor, typically in range [-4.0, -0.25].
+ *        A larger magnitude increases perceived sharpness, but going past
+ *        -2.0 might cause ringing artifacts to outweigh any improvement.
+ *        Nice values on a 320x240 LCD are between -0.75 and -2.0.
+ *
+ *  @f_x: Absolute distance in pixels from 'pixel 0' sample position
+ *        along horizontal (or vertical) source axis. Range is [0, +2.0].
+ *
+ *  returns: Weight of this pixel within 4-pixel sample group. Range is
+ *           [-2.0, +2.0]. For moderate (i.e. > -3.0) sharpness factors,
+ *           range is within [-1.0, +1.0].
+ */
+static inline int32_t cubic_conv(const int32_t f_a, const int32_t f_x)
+{
+	const int32_t f_1 = I2F(1);
+	const int32_t f_2 = I2F(2);
+	const int32_t f_3 = I2F(3);
+	const int32_t f_4 = I2F(4);
+	const int32_t f_x2 = FMUL(f_x, f_x);
+	const int32_t f_x3 = FMUL(f_x, f_x2);
+
+	if (f_x <= f_1)
+		return FMUL((f_a + f_2), f_x3) - FMUL((f_a + f_3), f_x2) + f_1;
+	else if (f_x <= f_2)
+		return FMUL(f_a, (f_x3 - 5*f_x2 + 8*f_x - f_4));
+	else
+		return 0;
+}
+
+static void set_coefs_reg(struct jzfb *jzfb, unsigned int reg,
+		unsigned int sharpness_setting,
+		unsigned int weight, unsigned int offset)
+{
+	/*
+	 * On entry, "weight" is a coefficient suitable for bilinear mode,
+	 *  which is converted to a set of four suitable for bicubic mode.
+	 *
+	 * "weight 512" means all of pixel 0;
+	 * "weight 256" means half of pixel 0 and half of pixel 1;
+	 * "weight 0" means all of pixel 1;
+	 *
+	 * "offset" is increment to next source pixel sample location
+	 */
+
+	uint32_t val;
+	int32_t w0, w1, w2, w3; /* Pixel weights at X (or Y) offsets -1,0,1,2 */
+
+	weight = clamp_val(weight, 0, 512);
+
+	if (sharpness_setting < 2) {
+		/*
+		 *  When sharpness setting is 0, emulate nearest-neighbor.
+		 *  When sharpness setting is 1, emulate bilinear.
+		 */
+
+		if (sharpness_setting == 0)
+			weight = weight >= 256 ? 512 : 0;
+		w0 = 0;
+		w1 = weight;
+		w2 = 512 - weight;
+		w3 = 0;
+	} else {
+		const int32_t f_a = SHARPNESS_INCR * sharpness_setting;
+		const int32_t f_h = I2F(1) / 2; /* Round up 0.5 */
+
+		/*
+		 * Note that always rounding towards +infinity here is intended.
+		 * The resulting coefficients match a round-to-nearest-int
+		 * double floating-point implementation.
+		 */
+
+		weight = 512 - weight;
+		w0 = F2I(f_h + 512 * cubic_conv(f_a, I2F(512  + weight) / 512));
+		w1 = F2I(f_h + 512 * cubic_conv(f_a, I2F(0    + weight) / 512));
+		w2 = F2I(f_h + 512 * cubic_conv(f_a, I2F(512  - weight) / 512));
+		w3 = F2I(f_h + 512 * cubic_conv(f_a, I2F(1024 - weight) / 512));
+		w0 = clamp_val(w0, -1024, 1023);
+		w1 = clamp_val(w1, -1024, 1023);
+		w2 = clamp_val(w2, -1024, 1023);
+		w3 = clamp_val(w3, -1024, 1023);
+	}
+
+	val = ((w1 & 0x7FF) << 17) | ((w0 & 0x7FF) << 6);
+	writel(val, jzfb->ipu_base + reg);
+	val = ((w3 & 0x7FF) << 17) | ((w2 & 0x7FF) << 6) | (offset << 1);
+	writel(val, jzfb->ipu_base + reg);
+}
+
+static void set_downscale_coefs(struct jzfb *jzfb, unsigned int reg,
 		unsigned int num, unsigned int denom)
 {
 	unsigned int i, weight_num = denom;
 
 	for (i = 0; i < num; i++) {
 		unsigned int weight, offset;
-		u32 value;
 
 		weight_num = num + (weight_num - num) % (num * 2);
-
-		/*
-		 * Here, "input pixel 1.0" means half of 0 and half of 1;
-		 * "input pixel 0.5" means all of 0; and
-		 * "input pixel 1.49" means almost all of 1.
-		 */
 		weight = 512 - 512 * (weight_num - num) / (num * 2);
 		weight_num += denom * 2;
 		offset = (weight_num - num) / (num * 2);
 
-		value = ((weight & 0x7FF) << 6) | (offset << 1);
-		writel(value, jzfb->ipu_base + reg);
+		set_coefs_reg(jzfb, reg, sharpness_downscaling, weight, offset);
 	}
 }
 
-static void set_upscale_bilinear_coefs(struct jzfb *jzfb, unsigned int reg,
+static void set_upscale_coefs(struct jzfb *jzfb, unsigned int reg,
 		unsigned int num, unsigned int denom)
 {
 	unsigned int i, weight_num = 0;
 
 	for (i = 0; i < num; i++) {
 		unsigned int weight = 512 - 512 * weight_num / num;
-		u32 offset = 0, value;
+		unsigned int offset = 0;
 
 		weight_num += denom;
 		if (weight_num >= num) {
@@ -407,58 +548,78 @@ static void set_upscale_bilinear_coefs(struct jzfb *jzfb, unsigned int reg,
 			offset = 1;
 		}
 
-		value = (weight & 0x7FF) << 6 | (offset << 1);
-		writel(value, jzfb->ipu_base + reg);
+		set_coefs_reg(jzfb, reg, sharpness_upscaling, weight, offset);
 	}
 }
 
-static void set_upscale_nearest_neighbour_coefs(struct jzfb *jzfb,
-			unsigned int reg, unsigned int num)
+static void set_integer_upscale_coefs(struct jzfb *jzfb,
+		unsigned int reg, unsigned int num)
 {
-	unsigned int i, weight_num = 1;
+	/* Force nearest-neighbor scaling and use simple math when upscaling
+	 * by an integer ratio. It looks better, and fixes a few problem cases.
+	 */
+	unsigned int i;
 
-	for (i = 0; i < num; i++, weight_num++) {
-		u32 value, offset = weight_num / num;
-		weight_num %= num;
+	for (i = 0; i < num; i++) {
+		unsigned int offset = (i == (num - 1)) ? 1 : 0;
 
-		value = (512 << 6) | (offset << 1);
-		writel(value, jzfb->ipu_base + reg);
+		set_coefs_reg(jzfb, reg, 0, 512, offset);
 	}
 }
 
 static void set_coefs(struct jzfb *jzfb, unsigned int reg,
 		unsigned int num, unsigned int denom)
 {
-	/* Start programmation of the LUT */
+	/* Begin programming the LUT */
 	writel(1, jzfb->ipu_base + reg);
 
-	if (denom > num)
-		set_downscale_bilinear_coefs(jzfb, reg, num, denom);
-	else if (denom == 1)
-		set_upscale_nearest_neighbour_coefs(jzfb, reg, num);
-	else
-		set_upscale_bilinear_coefs(jzfb, reg, num, denom);
+	if (denom > num) {
+			set_downscale_coefs(jzfb, reg, num, denom);
+	} else {
+		if (denom == 1)
+			set_integer_upscale_coefs(jzfb, reg, num);
+		else
+			set_upscale_coefs(jzfb, reg, num, denom);
+	}
 }
 
 static inline bool scaling_required(struct jzfb *jzfb)
 {
 	struct fb_var_screeninfo *var = &jzfb->fb->var;
-	return var->xres != jz_panel->w || var->yres != jz_panel->h;
+	return var->xres != jzfb->panel->dw || var->yres != jzfb->panel->dh;
 }
 
-static void jzfb_ipu_configure(struct jzfb *jzfb,
-		const struct jz4760lcd_panel_t *panel)
+static void jzfb_ipu_configure(struct jzfb *jzfb)
 {
+	const struct jz_panel *panel = jzfb->panel;
 	struct fb_info *fb = jzfb->fb;
 	u32 ctrl, coef_index = 0, size, format = 2 << IPU_D_FMT_OUT_FMT_BIT;
-	unsigned int outputW = panel->w,
-		     outputH = panel->h,
+	unsigned int outputW = panel->dw,
+		     outputH = panel->dh,
 		     xpos = 0, ypos = 0;
 
 	/* Enable the chip, reset all the registers */
 	writel(IPU_CTRL_CHIP_EN | IPU_CTRL_RST, jzfb->ipu_base + IPU_CTRL);
 
+	/*
+	 * The IPU can swizzle its RGB output. We allow userspace to request
+	 * an unconventional BGR ordering, useful for some emulators. The IPU
+	 * thinks it's swizzling RGB->BGR, but it's actually BGR->RGB.
+	 *  Output swizzling modes IPU supports (3-bit RGB_OUT_OFT field):
+	 *   0: RGB (default)
+	 *   1: RBG
+	 *   2: GBR
+	 *   3: GRB
+	 *   4: BRG
+	 *   5: BGR (only non-default mode supported in this driver)
+	 */
+	if (fb->var.blue.offset > fb->var.green.offset)
+		format |= 5 << IPU_D_FMT_RGB_OUT_OFT_BIT;
+
 	switch (jzfb->bpp) {
+	case 15:
+		/* Nothing to do.. IN_FMT field should be 0. */
+		break;
 	case 16:
 		format |= 3 << IPU_D_FMT_IN_FMT_BIT;
 		break;
@@ -483,11 +644,17 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 		ctrl |= IPU_CTRL_SPKG_SEL;
 
 	if (scaling_required(jzfb)) {
-		unsigned int numW = panel->w, denomW = fb->var.xres,
-			     numH = panel->h, denomH = fb->var.yres;
+		unsigned int numW = panel->dw, denomW = fb->var.xres,
+			     numH = panel->dh, denomH = fb->var.yres;
 
-		BUG_ON(reduce_fraction(&numW, &denomW) < 0);
-		BUG_ON(reduce_fraction(&numH, &denomH) < 0);
+		if (integer_scaling && (denomW <= numW) && (denomH <= numH)) {
+			numW /= denomW;
+			numH /= denomH;
+			denomW = denomH = 1;
+		} else {
+			BUG_ON(reduce_fraction(&numW, &denomW) < 0);
+			BUG_ON(reduce_fraction(&numH, &denomH) < 0);
+		}
 
 		if (keep_aspect_ratio) {
 			unsigned int ratioW = (UINT_MAX >> 6) * numW / denomW,
@@ -500,6 +667,15 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 				denomW = denomH;
 			}
 		}
+
+		/*
+		 * Must set ZOOM_SEL before programming bicubic LUTs.
+		 * The IPU supports both bilinear and bicubic modes, but we use
+		 * only bicubic. It can do anything bilinear can and more.
+		 */
+		writel(IPU_CTRL_CHIP_EN | IPU_CTRL_ZOOM_SEL,
+			jzfb->ipu_base + IPU_CTRL);
+		ctrl |= IPU_CTRL_ZOOM_SEL;
 
 		if (numW != 1 || denomW != 1) {
 			set_coefs(jzfb, IPU_HRSZ_COEF_LUT, numW, denomW);
@@ -540,8 +716,8 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 	writel(outputW * 4, jzfb->ipu_base + IPU_OUT_STRIDE);
 
 	/* Resize Foreground1 to the output size of the IPU */
-	xpos = (panel->w - outputW) / 2;
-	ypos = (panel->h - outputH) / 2;
+	xpos = (panel->bw - outputW) / 2;
+	ypos = (panel->bh - outputH) / 2;
 	jzfb_foreground_resize(jzfb, xpos, ypos, outputW, outputH);
 
 	dev_dbg(&jzfb->pdev->dev, "Scaling %ux%u to %ux%u\n",
@@ -552,9 +728,10 @@ static void jzfb_power_up(struct jzfb *jzfb)
 {
 	pinctrl_pm_select_default_state(&jzfb->pdev->dev);
 
-	jzfb->pdata->panel_ops->enable(jzfb->panel);
-
+	clk_enable(jzfb->lpclk);
 	jzfb_lcdc_enable(jzfb);
+
+	clk_enable(jzfb->ipuclk);
 	jzfb_ipu_enable(jzfb);
 }
 
@@ -566,19 +743,17 @@ static void jzfb_power_down(struct jzfb *jzfb)
 	jzfb_ipu_disable(jzfb);
 	clk_disable(jzfb->ipuclk);
 
-	jzfb->pdata->panel_ops->disable(jzfb->panel);
-
 	pinctrl_pm_select_sleep_state(&jzfb->pdev->dev);
 }
 
 /*
  * (Un)blank the display.
  */
-static int jz4760fb_blank(int blank_mode, struct fb_info *info)
+static int jzfb_blank(int blank_mode, struct fb_info *info)
 {
 	struct jzfb *jzfb = info->par;
 
-	mutex_lock(&jzfb->lock);
+	spin_lock_irq(&jzfb->lock);
 
 	if (blank_mode == FB_BLANK_UNBLANK) {
 		if (!jzfb->is_enabled) {
@@ -592,12 +767,12 @@ static int jz4760fb_blank(int blank_mode, struct fb_info *info)
 		}
 	}
 
-	mutex_unlock(&jzfb->lock);
+	spin_unlock_irq(&jzfb->lock);
 
 	return 0;
 }
 
-static int jz4760fb_pan_display(struct fb_var_screeninfo *var,
+static int jzfb_pan_display(struct fb_var_screeninfo *var,
 				struct fb_info *fb)
 {
 	struct jzfb *jzfb = fb->par;
@@ -608,12 +783,16 @@ static int jz4760fb_pan_display(struct fb_var_screeninfo *var,
 		return -EINVAL;
 	}
 
+	spin_lock_irq(&jzfb->lock);
+
 	jzfb->pan_offset = fb->fix.line_length * vpan;
 	dev_dbg(&jzfb->pdev->dev, "var.yoffset: %d\n", vpan);
 
 	jzfb->delay_flush = 8;
 	dma_cache_wback_inv((unsigned long)(lcd_frame1 + jzfb->pan_offset),
 			    fb->fix.line_length * var->yres);
+
+	spin_unlock_irq(&jzfb->lock);
 
 	/*
 	 * The primary use of this function is to implement double buffering.
@@ -632,15 +811,10 @@ static int jz4760fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
-static inline unsigned int words_per_line(unsigned int width, unsigned int bpp)
-{
-	return (bpp * width + 31) / 32;
-}
-
 /*
  * Map screen memory
  */
-static int jz4760fb_map_smem(struct fb_info *fb)
+static int jzfb_map_smem(struct fb_info *fb)
 {
 	/* Compute space for max res at 32bpp, triple buffered. */
 	unsigned int size = PAGE_ALIGN(MAX_XRES * MAX_YRES * 4 * 3);
@@ -672,7 +846,7 @@ static int jz4760fb_map_smem(struct fb_info *fb)
 	return 0;
 }
 
-static void jz4760fb_unmap_smem(struct fb_info *fb)
+static void jzfb_unmap_smem(struct fb_info *fb)
 {
 	if (lcd_frame1) {
 		void *end = lcd_frame1 + fb->fix.smem_len;
@@ -686,26 +860,27 @@ static void jz4760fb_unmap_smem(struct fb_info *fb)
 	}
 }
 
-static void jz4760fb_set_panel_mode(struct jzfb *jzfb,
-			const struct jz4760lcd_panel_t *panel)
+static void jzfb_set_panel_mode(struct jzfb *jzfb)
 {
+	const struct jz_panel *panel = jzfb->panel;
+
 	/* Configure LCDC */
 	writel(panel->cfg, jzfb->base + LCD_CFG);
 
 	/* Enable IPU auto-restart */
 	writel(LCD_IPUR_IPUREN |
-			(panel->blw + panel->w + panel->elw) * panel->vsw / 3,
+			(panel->blw + panel->bw + panel->elw) * panel->vsw / 3,
 			jzfb->base + LCD_IPUR);
 
 	/* Set HT / VT / HDS / HDE / VDS / VDE / HPE / VPE */
-	writel((panel->blw + panel->w + panel->elw) << LCD_VAT_HT_BIT |
-			(panel->bfw + panel->h + panel->efw) << LCD_VAT_VT_BIT,
+	writel((panel->blw + panel->bw + panel->elw) << LCD_VAT_HT_BIT |
+			(panel->bfw + panel->bh + panel->efw) << LCD_VAT_VT_BIT,
 		jzfb->base + LCD_VAT);
 	writel(panel->blw << LCD_DAH_HDS_BIT |
-			(panel->blw + panel->w) << LCD_DAH_HDE_BIT,
+			(panel->blw + panel->bw) << LCD_DAH_HDE_BIT,
 			jzfb->base + LCD_DAH);
 	writel(panel->bfw << LCD_DAV_VDS_BIT |
-			(panel->bfw + panel->h) << LCD_DAV_VDE_BIT,
+			(panel->bfw + panel->bh) << LCD_DAV_VDE_BIT,
 			jzfb->base + LCD_DAV);
 	writel(panel->hsw << LCD_HSYNC_HPE_BIT, jzfb->base + LCD_HSYNC);
 	writel(panel->vsw << LCD_VSYNC_VPE_BIT, jzfb->base + LCD_VSYNC);
@@ -721,17 +896,9 @@ static void jz4760fb_set_panel_mode(struct jzfb *jzfb,
 	writel(0, jzfb->base + LCD_BGC);
 }
 
-static void jzfb_change_clock(struct jzfb *jzfb,
-			      const struct jz4760lcd_panel_t *panel)
+static void jzfb_change_clock(struct jzfb *jzfb, unsigned int rate)
 {
-	unsigned int rate;
-
-	rate = panel->fclk * (panel->w + panel->elw + panel->blw)
-	                   * (panel->h + panel->efw + panel->bfw);
-
-	/* Use pixel clock for LCD panel (as opposed to TV encoder). */
-	__cpm_select_pixclk_lcd();
-
+	//rate = clk_round_rate(jzfb->lpclk, rate);
 	clk_set_rate(jzfb->lpclk, rate);
 
 	dev_dbg(&jzfb->pdev->dev, "PixClock: req %u, got %lu\n",
@@ -739,11 +906,13 @@ static void jzfb_change_clock(struct jzfb *jzfb,
 }
 
 /* set the video mode according to info->var */
-static int jz4760fb_set_par(struct fb_info *info)
+static int jzfb_set_par(struct fb_info *info)
 {
 	struct fb_var_screeninfo *var = &info->var;
 	struct fb_fix_screeninfo *fix = &info->fix;
 	struct jzfb *jzfb = info->par;
+
+	spin_lock_irq(&jzfb->lock);
 
 	if (jzfb->is_enabled) {
 		ctrl_disable(jzfb);
@@ -755,19 +924,23 @@ static int jz4760fb_set_par(struct fb_info *info)
 
 	jzfb->pan_offset = 0;
 	jzfb->bpp = var->bits_per_pixel;
-	fix->line_length = var->xres_virtual * (var->bits_per_pixel >> 3);
+	fix->line_length = var->xres_virtual * ((var->bits_per_pixel + 7) / 8);
 
-	jz4760fb_set_panel_mode(jzfb, jz_panel);
-	jzfb_ipu_configure(jzfb, jz_panel);
+	jzfb_set_panel_mode(jzfb);
+	jzfb_ipu_configure(jzfb);
 
 	/* Clear the framebuffer to avoid artifacts */
 	if (jzfb->clear_fb) {
 		void *page_virt = lcd_frame1;
 		unsigned int size = fix->line_length * var->yres * 3;
 
+		spin_unlock_irq(&jzfb->lock);
+
 		for (; page_virt < lcd_frame1 + size; page_virt += PAGE_SIZE)
 			clear_page(page_virt);
 		dma_cache_wback_inv((unsigned long) lcd_frame1, size);
+
+		spin_lock_irq(&jzfb->lock);
 	}
 
 	if (jzfb->is_enabled) {
@@ -778,7 +951,8 @@ static int jz4760fb_set_par(struct fb_info *info)
 		clk_disable(jzfb->ipuclk);
 	}
 
-	fix->visual = FB_VISUAL_TRUECOLOR;
+	spin_lock_irq(&jzfb->lock);
+
 	return 0;
 }
 
@@ -789,13 +963,13 @@ static void jzfb_ipu_reset(struct jzfb *jzfb)
 	jzfb_ipu_disable(jzfb);
 	writel(IPU_CTRL_CHIP_EN | IPU_CTRL_RST, jzfb->ipu_base + IPU_CTRL);
 
-	jz4760fb_set_panel_mode(jzfb, jz_panel);
-	jzfb_ipu_configure(jzfb, jz_panel);
+	jzfb_set_panel_mode(jzfb);
+	jzfb_ipu_configure(jzfb);
 	jzfb_ipu_enable(jzfb);
 	ctrl_enable(jzfb);
 }
 
-static int jz4760fb_ioctl(struct fb_info *info, unsigned int cmd,
+static int jzfb_ioctl(struct fb_info *info, unsigned int cmd,
 			  unsigned long arg)
 {
 	struct jzfb *jzfb = info->par;
@@ -808,23 +982,27 @@ static int jz4760fb_ioctl(struct fb_info *info, unsigned int cmd,
 	}
 }
 
-static struct fb_ops jz4760fb_ops = {
+static struct fb_ops jzfb_ops = {
 	.owner			= THIS_MODULE,
-	.fb_setcolreg		= jz4760fb_setcolreg,
-	.fb_check_var 		= jz4760fb_check_var,
-	.fb_set_par 		= jz4760fb_set_par,
-	.fb_blank		= jz4760fb_blank,
-	.fb_pan_display		= jz4760fb_pan_display,
+	.fb_setcolreg		= jzfb_setcolreg,
+	.fb_check_var		= jzfb_check_var,
+	.fb_set_par		= jzfb_set_par,
+	.fb_blank		= jzfb_blank,
+	.fb_pan_display		= jzfb_pan_display,
 	.fb_fillrect		= sys_fillrect,
 	.fb_copyarea		= sys_copyarea,
 	.fb_imageblit		= sys_imageblit,
-	.fb_mmap		= jz4760fb_mmap,
-	.fb_ioctl		= jz4760fb_ioctl,
+	.fb_mmap		= jzfb_mmap,
+	.fb_ioctl		= jzfb_ioctl,
 };
 
-static irqreturn_t jz4760fb_interrupt_handler(int irq, void *dev_id)
+static irqreturn_t jzfb_interrupt_handler(int irq, void *dev_id)
 {
 	struct jzfb *jzfb = dev_id;
+
+	spin_lock(&jzfb->lock);
+
+	writel(0, jzfb->ipu_base + IPU_STATUS);
 
 	if (jzfb->delay_flush == 0) {
 		struct fb_info *fb = jzfb->fb;
@@ -837,10 +1015,25 @@ static irqreturn_t jz4760fb_interrupt_handler(int irq, void *dev_id)
 
 	jzfb_update_frame_address(jzfb);
 	jzfb->vsync_count++;
+
+	spin_unlock(&jzfb->lock);
+
 	wake_up_interruptible_all(&jzfb->wait_vsync);
 
-	writel(0, jzfb->ipu_base + IPU_STATUS);
 	return IRQ_HANDLED;
+}
+
+static void scaling_settings_change(struct device *dev)
+{
+	struct jzfb *jzfb = dev_get_drvdata(dev);
+
+	if (jzfb->is_enabled && scaling_required(jzfb)) {
+		ctrl_disable(jzfb);
+		jzfb_ipu_disable(jzfb);
+		jzfb_ipu_configure(jzfb);
+		jzfb_ipu_enable(jzfb);
+		jzfb_lcdc_enable(jzfb);
+	}
 }
 
 static ssize_t keep_aspect_ratio_show(struct device *dev,
@@ -852,40 +1045,97 @@ static ssize_t keep_aspect_ratio_show(struct device *dev,
 static ssize_t keep_aspect_ratio_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
-	struct jzfb *jzfb = dev_get_drvdata(dev);
-	bool new_value = false;
+	bool new_val;
 
-	if (strtobool(buf, &new_value) < 0)
+	if (strtobool(buf, &new_val))
 		return -EINVAL;
 
-	keep_aspect_ratio = new_value;
+	if (keep_aspect_ratio != new_val) {
+		keep_aspect_ratio = new_val;
+		scaling_settings_change(dev);
+	}
 
-	if (jzfb->is_enabled && scaling_required(jzfb)) {
-		ctrl_disable(jzfb);
-		jzfb_ipu_disable(jzfb);
-		jzfb_ipu_configure(jzfb, jz_panel);
-		jzfb_ipu_enable(jzfb);
-		jzfb_lcdc_enable(jzfb);
+	return count;
+}
+
+static ssize_t integer_scaling_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%c\n", integer_scaling ? 'Y' : 'N');
+}
+
+static ssize_t integer_scaling_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	bool new_val;
+
+	if (strtobool(buf, &new_val))
+		return -EINVAL;
+
+	if (integer_scaling != new_val) {
+		integer_scaling = new_val;
+		scaling_settings_change(dev);
+	}
+
+	return count;
+}
+
+static ssize_t sharpness_upscaling_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n", sharpness_upscaling);
+}
+
+static ssize_t sharpness_upscaling_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int new_val;
+
+	if (kstrtouint(buf, 0, &new_val) || new_val > 32)
+		return -EINVAL;
+
+	if (sharpness_upscaling != new_val) {
+		sharpness_upscaling = new_val;
+		scaling_settings_change(dev);
+	}
+
+	return count;
+}
+
+static ssize_t sharpness_downscaling_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n", sharpness_downscaling);
+}
+
+static ssize_t sharpness_downscaling_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int new_val;
+
+	if (kstrtouint(buf, 0, &new_val) || new_val > 32)
+		return -EINVAL;
+
+	if (sharpness_downscaling != new_val) {
+		sharpness_downscaling = new_val;
+		scaling_settings_change(dev);
 	}
 
 	return count;
 }
 
 static DEVICE_ATTR_RW(keep_aspect_ratio);
+static DEVICE_ATTR_RW(integer_scaling);
+static DEVICE_ATTR_RW(sharpness_upscaling);
+static DEVICE_ATTR_RW(sharpness_downscaling);
 static DEVICE_BOOL_ATTR(allow_downscaling, 0644, allow_downscaling);
 
-static int jz4760_fb_probe(struct platform_device *pdev)
+static int jzfb_probe(struct platform_device *pdev)
 {
-	struct jzfb_platform_data *pdata = pdev->dev.platform_data;
 	struct jzfb *jzfb;
 	struct fb_info *fb;
 	struct resource *res;
 	int ret;
-
-	if (!pdata) {
-		dev_err(&pdev->dev, "Missing platform data\n");
-		return -ENXIO;
-	}
 
 	fb = framebuffer_alloc(sizeof(struct jzfb), &pdev->dev);
 	if (!fb) {
@@ -911,10 +1161,11 @@ static int jz4760_fb_probe(struct platform_device *pdev)
 		goto err_release_fb;
 	}
 
+	jzfb->panel = &jz4770_lcd_panel;
 	jzfb->pdev = pdev;
-	jzfb->pdata = pdata;
 	jzfb->bpp = 32;
 	init_waitqueue_head(&jzfb->wait_vsync);
+	spin_lock_init(&jzfb->lock);
 
 	strcpy(fb->fix.id, "jz-lcd");
 	fb->fix.type	= FB_TYPE_PACKED_PIXELS;
@@ -933,45 +1184,43 @@ static int jz4760_fb_probe(struct platform_device *pdev)
 	fb->var.accel_flags	= FB_ACCELF_TEXT;
 	fb->var.bits_per_pixel = jzfb->bpp;
 
-	fb->var.xres = jz_panel->w;
-	fb->var.yres = jz_panel->h;
+	fb->var.xres = jzfb->panel->dw;
+	fb->var.yres = jzfb->panel->dh;
 	fb->var.vmode = FB_VMODE_NONINTERLACED;
 
-	jz4760fb_check_var(&fb->var, fb);
+	jzfb_check_var(&fb->var, fb);
 
-	fb->fbops		= &jz4760fb_ops;
+	fb->fbops		= &jzfb_ops;
 	fb->flags		= FBINFO_FLAG_DEFAULT;
 
 	fb->pseudo_palette	= jzfb->pseudo_palette;
 	INIT_LIST_HEAD(&fb->modelist);
 
-	ret = jz4760fb_map_smem(fb);
+	ret = jzfb_map_smem(fb);
 	if (ret)
-		goto failed;
+		goto err_release_fb;
 
 	/* Init pixel clock. */
 	jzfb->lpclk = devm_clk_get(&pdev->dev, "lpclk");
 	if (IS_ERR(jzfb->lpclk)) {
 		ret = PTR_ERR(jzfb->lpclk);
 		dev_err(&pdev->dev, "Failed to get pixel clock: %d\n", ret);
-		goto failed;
+		goto err_unmap;
 	}
 
 	jzfb->ipuclk = devm_clk_get(&pdev->dev, "ipu");
 	if (IS_ERR(jzfb->ipuclk)) {
 		ret = PTR_ERR(jzfb->ipuclk);
 		dev_err(&pdev->dev, "Failed to get ipu clock: %d\n", ret);
-		goto failed;
+		goto err_unmap;
 	}
 
-	if (request_irq(IRQ_IPU, jz4760fb_interrupt_handler, 0,
+	if (request_irq(IRQ_IPU, jzfb_interrupt_handler, 0,
 				"ipu", jzfb)) {
 		dev_err(&pdev->dev, "Failed to request IRQ.\n");
 		ret = -EBUSY;
-		goto failed;
+		goto err_unmap;
 	}
-
-	mutex_init(&jzfb->lock);
 
 	platform_set_drvdata(pdev, jzfb);
 	jzfb->fb = fb;
@@ -980,24 +1229,24 @@ static int jz4760_fb_probe(struct platform_device *pdev)
 	 * We assume the LCDC is disabled initially. If you really must have
 	 * video in your boot loader, you'll have to update this driver.
 	 */
+	ret = clk_prepare(jzfb->ipuclk);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to prepare IPU clock: %i\n", ret);
+		goto err_unmap;
+	}
 
-	jzfb_change_clock(jzfb, jz_panel);
+	ret = clk_prepare(jzfb->lpclk);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to prepare pixel clock: %i\n", ret);
+		goto err_unprepare_ipuclk;
+	}
+
+	jzfb_change_clock(jzfb, fb->var.pixclock);
 	clk_enable(jzfb->lpclk);
 
-	fb->fix.line_length = fb->var.xres_virtual * (fb->var.bits_per_pixel >> 3);
+	fb->fix.line_length = fb->var.xres_virtual * ((fb->var.bits_per_pixel + 7) / 8);
 
 	jzfb->delay_flush = 0;
-
-	// TODO: Panels should be proper modules that register themselves.
-	//       They should be switchable via sysfs.
-	//       And a module parameter should select the default panel.
-
-	ret = pdata->panel_ops->init(&jzfb->panel,
-				     &pdev->dev, pdata->panel_pdata);
-	if (ret)
-		goto failed;
-
-	jzfb->pdata->panel_ops->enable(jzfb->panel);
 
 	jzfb_ipu_reset(jzfb);
 	jzfb->is_enabled = true;
@@ -1005,7 +1254,7 @@ static int jz4760_fb_probe(struct platform_device *pdev)
 	ret = device_create_file(&pdev->dev, &dev_attr_keep_aspect_ratio);
 	if (ret) {
 		dev_err(&pdev->dev, "Unable to create sysfs node: %i\n", ret);
-		goto err_exit_panel;
+		goto err_unprepare_lpclk;
 	}
 
 	ret = device_create_file(&pdev->dev, &dev_attr_allow_downscaling.attr);
@@ -1014,10 +1263,40 @@ static int jz4760_fb_probe(struct platform_device *pdev)
 		goto err_remove_keep_aspect_ratio_file;
 	}
 
+	ret = device_create_file(&pdev->dev, &dev_attr_integer_scaling);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to create sysfs node: %i\n", ret);
+		goto err_remove_allow_downscaling_file;
+	}
+
+	ret = device_create_file(&pdev->dev, &dev_attr_sharpness_upscaling);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to create sysfs node: %i\n", ret);
+		goto err_remove_integer_scaling_file;
+	}
+
+	ret = device_create_file(&pdev->dev, &dev_attr_sharpness_downscaling);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to create sysfs node: %i\n", ret);
+		goto err_remove_sharpness_upscaling_file;
+	}
+
+	/*
+	 * Wait for at least one full frame to have been sent to the LCD
+	 * before registering the frame buffer, since that is the trigger
+	 * to turn on the backlight. Turning on the backlight before the LCD
+	 * contains an image will make the screen flash white.
+	 */
+	ret = jzfb_wait_for_vsync(jzfb);
+	if (!ret)
+		ret = jzfb_wait_for_vsync(jzfb);
+	if (ret)
+		dev_warn(&pdev->dev, "Wait for vsync failed: %d\n", ret);
+
 	ret = register_framebuffer(fb);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to register framebuffer device.\n");
-		goto err_remove_allow_downscaling_file;
+		goto err_remove_sharpness_downscaling_file;
 	}
 	dev_info(&pdev->dev,
 		"fb%d: %s frame buffer device, using %dK of video memory\n",
@@ -1025,38 +1304,55 @@ static int jz4760_fb_probe(struct platform_device *pdev)
 
 	fb_prepare_logo(jzfb->fb, 0);
 	fb_show_logo(jzfb->fb, 0);
+
+	ret = of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
+	if (ret)
+		dev_warn(&pdev->dev, "Failed to populate child devices: %d\n",
+			 ret);
+
 	return 0;
 
+err_remove_sharpness_downscaling_file:
+	device_remove_file(&pdev->dev, &dev_attr_sharpness_downscaling);
+err_remove_sharpness_upscaling_file:
+	device_remove_file(&pdev->dev, &dev_attr_sharpness_upscaling);
+err_remove_integer_scaling_file:
+	device_remove_file(&pdev->dev, &dev_attr_integer_scaling);
 err_remove_allow_downscaling_file:
 	device_remove_file(&pdev->dev, &dev_attr_allow_downscaling.attr);
 err_remove_keep_aspect_ratio_file:
 	device_remove_file(&pdev->dev, &dev_attr_keep_aspect_ratio);
-err_exit_panel:
-	jzfb->pdata->panel_ops->exit(jzfb->panel);
-failed:
-	jz4760fb_unmap_smem(fb);
+err_unprepare_lpclk:
+	clk_disable_unprepare(jzfb->lpclk);
+err_unprepare_ipuclk:
+	clk_unprepare(jzfb->ipuclk);
+err_unmap:
+	jzfb_unmap_smem(fb);
 err_release_fb:
 	framebuffer_release(fb);
 	return ret;
 }
 
-static int jz4760_fb_remove(struct platform_device *pdev)
+static int jzfb_remove(struct platform_device *pdev)
 {
 	struct jzfb *jzfb = platform_get_drvdata(pdev);
 
+	device_remove_file(&pdev->dev, &dev_attr_sharpness_downscaling);
+	device_remove_file(&pdev->dev, &dev_attr_sharpness_upscaling);
+	device_remove_file(&pdev->dev, &dev_attr_integer_scaling);
 	device_remove_file(&pdev->dev, &dev_attr_allow_downscaling.attr);
 	device_remove_file(&pdev->dev, &dev_attr_keep_aspect_ratio);
 
 	if (jzfb->is_enabled)
 		jzfb_power_down(jzfb);
 
-	jzfb->pdata->panel_ops->exit(jzfb->panel);
-
+	clk_unprepare(jzfb->lpclk);
+	clk_unprepare(jzfb->ipuclk);
 	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
-static int jz4760_fb_suspend(struct device *dev)
+static int jzfb_suspend(struct device *dev)
 {
 	struct jzfb *jzfb = dev_get_drvdata(dev);
 
@@ -1068,7 +1364,7 @@ static int jz4760_fb_suspend(struct device *dev)
 	return 0;
 }
 
-static int jz4760_fb_resume(struct device *dev)
+static int jzfb_resume(struct device *dev)
 {
 	struct jzfb *jzfb = dev_get_drvdata(dev);
 
@@ -1081,19 +1377,27 @@ static int jz4760_fb_resume(struct device *dev)
 }
 #endif /* CONFIG_PM_SLEEP */
 
-static SIMPLE_DEV_PM_OPS(jz4760_fb_pm_ops, jz4760_fb_suspend, jz4760_fb_resume);
+static SIMPLE_DEV_PM_OPS(jzfb_pm_ops, jzfb_suspend, jzfb_resume);
 
-static struct platform_driver jz4760_fb_driver = {
-	.probe	= jz4760_fb_probe,
-	.remove = jz4760_fb_remove,
+#ifdef CONFIG_OF
+static const struct of_device_id jzfb_dt_ids[] = {
+	{ .compatible = "ingenic,jz4770-fb", },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, jzfb_dt_ids);
+#endif
+
+static struct platform_driver jzfb_driver = {
+	.probe	= jzfb_probe,
+	.remove = jzfb_remove,
 	.driver = {
-		.name  = "jz-lcd",
-		.owner = THIS_MODULE,
-		.pm    = &jz4760_fb_pm_ops,
+		.name		= "jz-lcd",
+		.of_match_table	= of_match_ptr(jzfb_dt_ids),
+		.pm		= &jzfb_pm_ops,
 	},
 };
 
-module_platform_driver(jz4760_fb_driver);
+module_platform_driver(jzfb_driver);
 
 MODULE_DESCRIPTION("Jz4770 LCD frame buffer driver");
 MODULE_AUTHOR("Maarten ter Huurne <maarten@treewalker.org>");
