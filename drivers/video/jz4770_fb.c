@@ -38,6 +38,11 @@
 #include <linux/interrupt.h>
 #include <linux/wait.h>
 
+///
+#include <linux/platform_data/jz4770_fb.h>
+#include <video/jzpanel.h>
+///
+
 #include <asm/addrspace.h>
 #include <asm/page.h>
 #include <asm/irq.h>
@@ -86,7 +91,7 @@ static const struct jz_panel jz4770_lcd_panel = {
 struct jzfb {
 	struct fb_info *fb;
 	struct platform_device *pdev;
-
+	struct jzfb_platform_data *pdata;
 	uint32_t pseudo_palette[16];
 	unsigned int bpp;	/* Current 'bits per pixel' value (32,16,15) */
 
@@ -109,7 +114,7 @@ struct jzfb {
 
 	void __iomem *base;
 	void __iomem *ipu_base;
-
+	void *panel_old;
 	const struct jz_panel *panel;
 };
 
@@ -727,7 +732,7 @@ static void jzfb_ipu_configure(struct jzfb *jzfb)
 static void jzfb_power_up(struct jzfb *jzfb)
 {
 	pinctrl_pm_select_default_state(&jzfb->pdev->dev);
-
+	jzfb->pdata->panel_ops->enable(jzfb->panel_old);
 	clk_enable(jzfb->lpclk);
 	jzfb_lcdc_enable(jzfb);
 
@@ -740,6 +745,7 @@ static void jzfb_power_down(struct jzfb *jzfb)
 	ctrl_disable(jzfb);
 	clk_disable(jzfb->lpclk);
 
+	jzfb->pdata->panel_ops->disable(jzfb->panel_old);
 	jzfb_ipu_disable(jzfb);
 	clk_disable(jzfb->ipuclk);
 
@@ -1136,7 +1142,14 @@ static int jzfb_probe(struct platform_device *pdev)
 	struct fb_info *fb;
 	struct resource *res;
 	int ret;
+	struct jzfb_platform_data *pdata = pdev->dev.platform_data;
+	
+	if (!pdata) {
+		dev_err(&pdev->dev, "Missing platform data\n");
+		return -ENXIO;
+	}
 
+	
 	fb = framebuffer_alloc(sizeof(struct jzfb), &pdev->dev);
 	if (!fb) {
 		dev_err(&pdev->dev, "Failed to allocate framebuffer device\n");
@@ -1163,6 +1176,7 @@ static int jzfb_probe(struct platform_device *pdev)
 
 	jzfb->panel = &jz4770_lcd_panel;
 	jzfb->pdev = pdev;
+	jzfb->pdata = pdata;
 	jzfb->bpp = 32;
 	init_waitqueue_head(&jzfb->wait_vsync);
 	spin_lock_init(&jzfb->lock);
@@ -1248,6 +1262,13 @@ static int jzfb_probe(struct platform_device *pdev)
 
 	jzfb->delay_flush = 0;
 
+	ret = pdata->panel_ops->init(&jzfb->panel_old,
+				     &pdev->dev, pdata->panel_pdata);
+	if (ret)
+		goto err_unmap;
+
+	jzfb->pdata->panel_ops->enable(jzfb->panel_old);
+
 	jzfb_ipu_reset(jzfb);
 	jzfb->is_enabled = true;
 
@@ -1305,10 +1326,10 @@ static int jzfb_probe(struct platform_device *pdev)
 	fb_prepare_logo(jzfb->fb, 0);
 	fb_show_logo(jzfb->fb, 0);
 
-	ret = of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
-	if (ret)
-		dev_warn(&pdev->dev, "Failed to populate child devices: %d\n",
-			 ret);
+	// ret = of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
+	// if (ret)
+		// dev_warn(&pdev->dev, "Failed to populate child devices: %d\n",
+			 // ret);
 
 	return 0;
 
@@ -1322,6 +1343,8 @@ err_remove_allow_downscaling_file:
 	device_remove_file(&pdev->dev, &dev_attr_allow_downscaling.attr);
 err_remove_keep_aspect_ratio_file:
 	device_remove_file(&pdev->dev, &dev_attr_keep_aspect_ratio);
+err_exit_panel:
+	jzfb->pdata->panel_ops->exit(jzfb->panel_old);
 err_unprepare_lpclk:
 	clk_disable_unprepare(jzfb->lpclk);
 err_unprepare_ipuclk:
@@ -1345,7 +1368,7 @@ static int jzfb_remove(struct platform_device *pdev)
 
 	if (jzfb->is_enabled)
 		jzfb_power_down(jzfb);
-
+	jzfb->pdata->panel_ops->exit(jzfb->panel_old);
 	clk_unprepare(jzfb->lpclk);
 	clk_unprepare(jzfb->ipuclk);
 	return 0;
@@ -1360,7 +1383,7 @@ static int jzfb_suspend(struct device *dev)
 
 	if (jzfb->is_enabled)
 		jzfb_power_down(jzfb);
-
+	jzfb->pdata->panel_ops->exit(jzfb->panel_old);
 	return 0;
 }
 
