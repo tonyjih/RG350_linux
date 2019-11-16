@@ -28,7 +28,7 @@
 	(type *)((char *)__mptr - offsetof(type, member)); })
 #endif
 
-#define BUILD_BUG_ON_ZERO(e) (sizeof(struct { int:-!!(e); }))
+#define BUILD_BUG_ON_ZERO(e) (sizeof(struct { int:(-!!(e)); }))
 
 #ifndef max
 #define max(x, y) ({				\
