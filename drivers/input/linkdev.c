@@ -356,7 +356,7 @@ static int linkdev_probe(struct platform_device *pdev)
 		return -ENXIO;
 	}
 
-	linkdev = pdata->__private;
+	linkdev = pdata->__private_data;
 
 	if (!linkdev) {
 		struct input_handler *handler;
@@ -388,7 +388,7 @@ static int linkdev_probe(struct platform_device *pdev)
 		}
 
 		/* pdata->private survives the probe defer, that's why we use it here */
-		pdata->__private = linkdev;
+		pdata->__private_data = linkdev;
 
 		dev_info(&pdev->dev, "linkdev handler successfully registered\n");
 	}

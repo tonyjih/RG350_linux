@@ -46,7 +46,7 @@ struct linkdev_platform_data {
 	const char *name;
 
 	/* Reserved for internal use */
-	void *__private;
+	void *__private_data;
 };
 
 #endif /* __INCLUDE_LINUX_PLATFORM_DATA_LINKDEV_H__ */
