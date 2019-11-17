@@ -117,15 +117,15 @@ static void nt39016_panel_enable(void *panel)
 	gpio_direction_output(pdata->gpio_reset, 1);
 
 	/* Init panel registers. */
-	for (i = 0; i < ARRAY_SIZE(panel_data); i++)
-		nt39016_write_reg(pdata, panel_data[i]);
+	// for (i = 0; i < ARRAY_SIZE(panel_data); i++)
+		// nt39016_write_reg(pdata, panel_data[i]);
 }
 
 static void nt39016_panel_disable(void *panel)
 {
 	struct nt39016_platform_data *pdata = ((struct nt39016 *)panel)->pdata;
 
-	nt39016_write_reg(pdata, panel_standby);
+	//nt39016_write_reg(pdata, panel_standby);
 }
 
 struct panel_ops nt39016_panel_ops = {
