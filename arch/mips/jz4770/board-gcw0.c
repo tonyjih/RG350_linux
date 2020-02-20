@@ -51,7 +51,12 @@
 #include <media/radio-rda5807.h>
 #include <sound/jz4770.h>
 #include <video/jzpanel.h>
-#include <video/panel-nt39016.h>
+
+#if defined(CONFIG_PANEL_NT39016)
+	#include <video/panel-nt39016.h>
+#elif defined(CONFIG_PANEL_NV3052C)
+	#include <video/panel-nv3052c.h>
+#endif
 
 #include <asm/mach-jz4770/board-gcw0.h>
 #include <asm/mach-jz4770/gpio.h>
@@ -68,6 +73,8 @@
 
 #define GPIO_PANEL_BACKLIGHT	JZ_GPIO_PORTE(1)
 #define GPIO_PANEL_SOMETHING	JZ_GPIO_PORTF(0)
+
+#if defined(CONFIG_PANEL_NT39016)
 
 static int gcw0_panel_init(void **out_panel,
 				     struct device *dev, void *panel_pdata)
@@ -117,6 +124,58 @@ static struct nt39016_platform_data gcw0_panel_pdata = {
 	.gpio_enable		= JZ_GPIO_PORTE(16),
 	.gpio_data		= JZ_GPIO_PORTE(17),
 };
+
+#elif defined(CONFIG_PANEL_NV3052C)
+static int gcw0_panel_init(void **out_panel,
+				     struct device *dev, void *panel_pdata)
+{
+	int ret;
+
+	ret = nv3052c_panel_ops.init(out_panel, dev, panel_pdata);
+	if (ret)
+		return ret;
+
+	ret = devm_gpio_request(dev, GPIO_PANEL_SOMETHING, "LCD panel unknown");
+	if (ret) {
+		dev_err(dev,
+			"Failed to request LCD panel unknown pin: %d\n", ret);
+		return ret;
+	}
+
+	gpio_direction_output(GPIO_PANEL_SOMETHING, 1);
+
+	return 0;
+}
+
+static void gcw0_panel_exit(void *panel)
+{
+	nv3052c_panel_ops.exit(panel);
+}
+
+static void gcw0_panel_enable(void *panel)
+{
+	//act8600_output_enable(6, true);
+	__gpio_as_pwm(1);
+	nv3052c_panel_ops.enable(panel);
+}
+
+static void gcw0_panel_disable(void *panel)
+{
+	nv3052c_panel_ops.disable(panel);
+	//gpio_direction_output(GPIO_PANEL_BACKLIGHT,0);
+	__gpio_as_output(GPIO_PANEL_BACKLIGHT);
+	__gpio_clear_pin(GPIO_PANEL_BACKLIGHT);
+	//act8600_output_enable(6, false);
+}
+
+static struct nv3052c_platform_data gcw0_panel_pdata = {
+	.gpio_reset		= JZ_GPIO_PORTE(2),
+	.gpio_clock		= JZ_GPIO_PORTE(15),
+	.gpio_enable		= JZ_GPIO_PORTE(16),
+	.gpio_data		= JZ_GPIO_PORTE(17),
+};
+#endif
+
 
 static struct panel_ops gcw0_panel_ops = {
 	.init		= gcw0_panel_init,

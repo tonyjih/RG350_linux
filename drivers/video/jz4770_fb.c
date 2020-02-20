@@ -76,6 +76,7 @@ struct jz_panel {
 	unsigned int bfw;	/* begin of frame, in line count */
 };
 
+#if defined(CONFIG_PANEL_NT39016)
 static const struct jz_panel jz4770_lcd_panel = {
 	.cfg = LCD_CFG_LCDPIN_LCD | LCD_CFG_RECOVER |	/* Underrun recover */
 		LCD_CFG_MODE_GENERIC_TFT |	/* General TFT panel */
@@ -88,7 +89,20 @@ static const struct jz_panel jz4770_lcd_panel = {
 	320, 240, 320, 240, 60, 16, 6, 20, 60, 2, 8,
 	/* Note: 432000000 / 72 = 60 * 400 * 250, so we get exactly 60 Hz. */
 };
-
+#elif defined(CONFIG_PANEL_NV3052C)
+static const struct jz_panel jz4770_lcd_panel = {
+	.cfg = LCD_CFG_LCDPIN_LCD | LCD_CFG_RECOVER |	/* Underrun recover */
+		LCD_CFG_MODE_GENERIC_TFT |	/* General TFT panel */
+		LCD_CFG_MODE_TFT_24BIT |	/* output 24bpp */
+		LCD_CFG_PCP |	/* Pixel clock polarity: falling edge */
+		LCD_CFG_HSP |	/* Hsync polarity: active low */
+		LCD_CFG_VSP,	/* Vsync polarity: leading edge is falling edge */
+	/* bw, bh, dw, dh, fclk, hsw, vsw, elw, blw, efw, bfw */
+	//320, 240, 320, 240, 60, 50, 1, 10, 70, 5, 5,
+	640, 480, 640, 480, 60, 96, 2, 16, 144, 15, 5,
+	/* Note: 432000000 / 72 = 60 * 400 * 250, so we get exactly 60 Hz. */
+};
+#endif
 struct jzfb {
 	struct fb_info *fb;
 	struct platform_device *pdev;
@@ -285,20 +299,25 @@ static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 	var->xres_virtual = var->xres;
 	var->vmode = FB_VMODE_NONINTERLACED;
 	var->yoffset = 0;
+	
+	
+	switch (var->bits_per_pixel)
+	{
+		// case 15:
+		// var->transp.offset = 15;
+		// var->transp.length = 1;
+		// var->red.length = var->green.length = var->blue.length = 5;
 
-	if (var->bits_per_pixel == 15) {
-		var->transp.offset = 15;
-		var->transp.length = 1;
-		var->red.length = var->green.length = var->blue.length = 5;
-
-		/* Force conventional RGB ordering, unless BGR is requested. */
-		if (var->blue.offset != 10 || var->green.offset != 5 ||
-				var->red.offset != 0) {
-			var->red.offset = 10;
-			var->green.offset = 5;
-			var->blue.offset = 0;
-		}
-	} else if (var->bits_per_pixel == 16) {
+		// /* Force conventional RGB ordering, unless BGR is requested. */
+		// if (var->blue.offset != 10 || var->green.offset != 5 ||
+				// var->red.offset != 0) {
+			// var->red.offset = 10;
+			// var->green.offset = 5;
+			// var->blue.offset = 0;
+		// }
+		// break;
+		
+		case 16:
 		var->transp.offset = 0;
 		var->transp.length = 0;
 		var->red.length = var->blue.length = 5;
@@ -311,7 +330,9 @@ static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 			var->green.offset = 5;
 			var->blue.offset = 0;
 		}
-	} else {
+		break;
+		
+		default:
 		/* Force 32bpp if it's not already */
 		var->bits_per_pixel = 32;
 
@@ -326,6 +347,7 @@ static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 			var->green.offset = 8;
 			var->blue.offset = 0;
 		}
+		break;		
 	}
 
 	jzfb->clear_fb = var->bits_per_pixel != fb->var.bits_per_pixel ||
