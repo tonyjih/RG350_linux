@@ -139,6 +139,7 @@ static bool keep_aspect_ratio = true;
 static bool allow_downscaling = false;
 static bool integer_scaling = false;
 
+
 /*
  * Sharpness settings range is [0,32]
  * 0       : nearest-neighbor
@@ -266,6 +267,8 @@ static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 	const struct jz_panel *panel = jzfb->panel;
 	unsigned int num, denom;
 	unsigned int framerate, divider;
+	unsigned int original_xres = var->xres;
+
 
 	/* The minimum input size for the IPU to work is 4x4 */
 	if (var->xres < 4)
@@ -279,7 +282,6 @@ static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 		if (var->yres > panel->dh)
 			var->yres = panel->dh;
 	}
-
 	/* Adjust the input size until we find a valid configuration */
 	for (num = panel->dw, denom = var->xres; var->xres <= MAX_XRES &&
 			reduce_fraction(&num, &denom) < 0;
@@ -296,26 +298,27 @@ static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 	/* Reserve space for triple buffering. */
 	var->yres_virtual = var->yres * 3;
 
-	var->xres_virtual = var->xres;
+	var->xres_virtual = original_xres;
 	var->vmode = FB_VMODE_NONINTERLACED;
+
 	var->yoffset = 0;
 	
 	
 	switch (var->bits_per_pixel)
 	{
-		// case 15:
-		// var->transp.offset = 15;
-		// var->transp.length = 1;
-		// var->red.length = var->green.length = var->blue.length = 5;
+		case 15:
+		var->transp.offset = 15;
+		var->transp.length = 1;
+		var->red.length = var->green.length = var->blue.length = 5;
 
-		// /* Force conventional RGB ordering, unless BGR is requested. */
-		// if (var->blue.offset != 10 || var->green.offset != 5 ||
-				// var->red.offset != 0) {
-			// var->red.offset = 10;
-			// var->green.offset = 5;
-			// var->blue.offset = 0;
-		// }
-		// break;
+		/* Force conventional RGB ordering, unless BGR is requested. */
+		if (var->blue.offset != 10 || var->green.offset != 5 ||
+			 var->red.offset != 0) {
+			var->red.offset = 10;
+			var->green.offset = 5;
+			var->blue.offset = 0;
+		}
+		break;
 		
 		case 16:
 		var->transp.offset = 0;
@@ -719,6 +722,7 @@ static void jzfb_ipu_configure(struct jzfb *jzfb)
 
 		outputH = fb->var.yres * numH / denomH;
 		outputW = fb->var.xres * numW / denomW;
+printk("outputW = %d \n",outputW);
 
 		/*
 		 * If we are upscaling horizontally, the last columns of pixels
@@ -742,7 +746,6 @@ static void jzfb_ipu_configure(struct jzfb *jzfb)
 		| outputH << IPU_OUT_GS_H_BIT;
 	writel(size, jzfb->ipu_base + IPU_OUT_GS);
 	writel(outputW * 4, jzfb->ipu_base + IPU_OUT_STRIDE);
-
 	/* Resize Foreground1 to the output size of the IPU */
 	xpos = (panel->bw - outputW) / 2;
 	ypos = (panel->bh - outputH) / 2;
@@ -1448,3 +1451,4 @@ module_platform_driver(jzfb_driver);
 MODULE_DESCRIPTION("Jz4770 LCD frame buffer driver");
 MODULE_AUTHOR("Maarten ter Huurne <maarten@treewalker.org>");
 MODULE_LICENSE("GPL");
+
