@@ -17,6 +17,8 @@
  * published by the Free Software Foundation.
  */
 
+
+//#define USE_VGA_HACK
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
@@ -139,7 +141,6 @@ static bool keep_aspect_ratio = true;
 static bool allow_downscaling = false;
 static bool integer_scaling = false;
 
-
 /*
  * Sharpness settings range is [0,32]
  * 0       : nearest-neighbor
@@ -251,9 +252,14 @@ static int reduce_fraction(unsigned int *num, unsigned int *denom)
 	unsigned long d = gcd(*num, *denom);
 
 	/* The scaling table has only 31 entries */
-	if (*num > 31 * d)
+#ifdef USE_VGA_HACK
+	if (*num > 40 * d)
 		return -EINVAL;
 
+#else
+	if (*num > 31 * d)
+		return -EINVAL;
+#endif
 	*num /= d;
 	*denom /= d;
 	return 0;
@@ -721,9 +727,14 @@ static void jzfb_ipu_configure(struct jzfb *jzfb)
 		}
 
 		outputH = fb->var.yres * numH / denomH;
-		outputW = fb->var.xres * numW / denomW;
-printk("outputW = %d \n",outputW);
-
+		outputW = fb->var.xres_virtual * numW / denomW;
+#ifdef USE_VGA_HACK
+if (fb->var.xres == 368)
+{
+printk("TONY's magic\n");
+outputW -= 64;
+}
+#endif
 		/*
 		 * If we are upscaling horizontally, the last columns of pixels
 		 * shall be hidden, as they usually contain garbage: the last
