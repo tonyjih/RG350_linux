@@ -27,7 +27,3 @@ dir	/boot		0755	0 0
 dir	/root		0755	0 0
 dir	/proc		0755	0 0
 dir	/sys		0755	0 0
-# mininit:
-file	/init		initrd/mininit		0755	0 0
-#file	/init		initrd/splashkill	0755	0 0
-#file	/mininit	initrd/mininit		0755	0 0
