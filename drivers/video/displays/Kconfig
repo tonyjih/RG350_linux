@@ -14,4 +14,10 @@ config PANEL_NV3052C
   bool "NV3052C based panel"
   help
     Select this if you are using a NV3052C LCD driver IC.
+config PANEL_M1700
+  # TODO: Switch to tristate once the driver is a module.
+  bool "M1700 based panel"
+  help
+    Select this if you are using a M1700 LCD driver IC.
+
 endmenu
