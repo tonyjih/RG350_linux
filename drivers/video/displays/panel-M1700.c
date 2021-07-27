@@ -158,57 +158,39 @@ static void M1700_panel_enable(void *panel)
 	mdelay(1);
 	gpio_direction_output(pdata->gpio_reset, 1);
 	mdelay(1);
+
+
+
+
 #if 1
 spi_writ_bit16_NEW(0xFD00); //SW reset
 spi_writ_bit16_NEW(0x0200);
-mdelay(120);	
+mdelay(10);	
 	
 spi_writ_bit16_NEW(0xFD00);
 spi_writ_bit16_NEW(0x1800);//01
 spi_writ_bit16_NEW(0x4420);
-//spi_writ_bit16_NEW(0x4510);
+//spi_writ_bit16_NEW(0x4530);
 
-spi_writ_bit16_NEW(0x1996);
-spi_writ_bit16_NEW(0x1A51);
+
+spi_writ_bit16_NEW(0x1987);
+spi_writ_bit16_NEW(0x1A80);
+spi_writ_bit16_NEW(0x1C00);
+spi_writ_bit16_NEW(0x1D09);
+
 
 spi_writ_bit16_NEW(0xFDC5);
+spi_writ_bit16_NEW(0x820C);
 spi_writ_bit16_NEW(0xA2B4);//VGH=15V, VGL=-14V  BA
 	
 
 spi_writ_bit16_NEW(0xFDC4);
 spi_writ_bit16_NEW(0x8245);//DCVCOM precharge	
 	
-
 spi_writ_bit16_NEW(0xFDC1);
 spi_writ_bit16_NEW(0x9102);//03		
-	
-/*
-spi_writ_bit16_NEW(0xFDC5);
-spi_writ_bit16_NEW(0xD194);
-spi_writ_bit16_NEW(0xD242);	
-	
-
-spi_writ_bit16_NEW(0xFDD8);
-spi_writ_bit16_NEW(0x0122);
-spi_writ_bit16_NEW(0x0222);	
-	
-*/	
-
-//spi_writ_bit16_NEW(0xFD00);
-//spi_writ_bit16_NEW(0x4420);
-//spi_writ_bit16_NEW(0x44D0);
-spi_writ_bit16_NEW(0xFD00);
-spi_writ_bit16_NEW(0x4400);	
-	
-spi_writ_bit16_NEW(0xFDC4);
-spi_writ_bit16_NEW(0x8245);
 mdelay(20);
 
-spi_writ_bit16_NEW(0xFD00);
-spi_writ_bit16_NEW(0x1C00);
-	
-spi_writ_bit16_NEW(0xFD00);
-spi_writ_bit16_NEW(0x1D09);
 
 spi_writ_bit16_NEW(0xFD00);
 spi_writ_bit16_NEW(0x0101);

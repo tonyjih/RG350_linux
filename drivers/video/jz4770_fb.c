@@ -104,6 +104,20 @@ static const struct jz_panel jz4770_lcd_panel = {
 	640, 480, 640, 480, 60, 96, 2, 16, 144, 15, 5,
 	/* Note: 432000000 / 72 = 60 * 400 * 250, so we get exactly 60 Hz. */
 };
+#elif defined(CONFIG_PANEL_M1700)
+static const struct jz_panel jz4770_lcd_panel = {
+	.cfg = LCD_CFG_LCDPIN_LCD | LCD_CFG_RECOVER |	/* Underrun recover */
+		LCD_CFG_MODE_GENERIC_TFT |	/* General TFT panel */
+		LCD_CFG_MODE_TFT_24BIT |	/* output 24bpp */
+		LCD_CFG_PCP |	/* Pixel clock polarity: falling edge */
+		LCD_CFG_HSP,// |	/* Hsync polarity: active low */
+		//LCD_CFG_VSP,	/* Vsync polarity: leading edge is falling edge */
+	/* bw, bh, dw, dh, fclk, hsw, vsw, elw, blw, efw, bfw */
+	640, 480, 640, 480, 60, 6, 2, 126, 134, 10, 10,
+	//640, 480, 640, 480, 60, 16, 3, 63, 97, 10, 10,	
+	//640, 480, 640, 480, 60, 16, 3, 63, 97, 10, 10,
+	/* Note: 432000000 / 72 = 60 * 400 * 250, so we get exactly 60 Hz. */
+};
 #endif
 struct jzfb {
 	struct fb_info *fb;
