@@ -113,7 +113,7 @@ static const struct jz_panel jz4770_lcd_panel = {
 		LCD_CFG_HSP,// |	/* Hsync polarity: active low */
 		//LCD_CFG_VSP,	/* Vsync polarity: leading edge is falling edge */
 	/* bw, bh, dw, dh, fclk, hsw, vsw, elw, blw, efw, bfw */
-	640, 480, 640, 480, 60, 6, 2, 126, 134, 10, 10,
+	640, 480, 640, 480, 60, 6, 2, 126, 134, 11, 9,
 	//640, 480, 640, 480, 60, 16, 3, 63, 97, 10, 10,	
 	//640, 480, 640, 480, 60, 16, 3, 63, 97, 10, 10,
 	/* Note: 432000000 / 72 = 60 * 400 * 250, so we get exactly 60 Hz. */
